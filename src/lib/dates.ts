@@ -157,6 +157,29 @@ export function timeOnDay(ev: CalendarEvent, day: Date): string {
   return `${s} – ${e}`
 }
 
+/** その日の中での開始・終了(上下2段の表示用)。日をまたぐ予定は「前日から」「翌日へ」 */
+export function timesOnDay(ev: CalendarEvent, day: Date): { start: string; end: string } | null {
+  if (isAllDay(ev)) return null
+  const { start, end } = eventRange(ev)
+  return {
+    start: sameDay(start, day) ? hhmm(start) : '前日から',
+    end: sameDay(end, day) || (end.getHours() === 0 && end.getMinutes() === 0 && sameDay(end, addDays(day, 1))) ? hhmm(end) : '翌日へ',
+  }
+}
+
+/** メモ(説明欄。HTML のこともある)の最初の1行 */
+export function firstLine(description: string | undefined): string {
+  if (!description) return ''
+  const text = description
+    .replace(/<br\s*\/?>|<\/(p|div|li)>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+  return text.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
+}
+
 /** 背景色に対して読みやすい文字色 */
 export function textOn(bg: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(bg)

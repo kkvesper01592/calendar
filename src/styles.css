@@ -180,6 +180,27 @@ button.chip:focus-visible { outline: 2px solid var(--accent); }
 .row-when { font-size: calc(12px * var(--fs)); color: var(--muted); white-space: nowrap; flex: none; min-width: 12em; }
 .row-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
+/* 日付を選んだときの予定一覧(左に開始・終了、色の帯、タイトルとメモの1行目) */
+.day-rows { list-style: none; margin: 0 0 8px; padding: 0; }
+.day-rows li + li { border-top: 1px solid var(--border); }
+.day-row {
+  all: unset; box-sizing: border-box; cursor: pointer; width: 100%;
+  display: grid; grid-template-columns: auto 6px minmax(0, 1fr) auto; align-items: stretch; gap: 10px;
+  padding: 8px 2px;
+}
+.day-row:hover, .day-row:focus-visible { background: var(--selected); }
+.dr-time {
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;
+  min-width: 3.1em; font-size: calc(13px * var(--fs)); color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.dr-bar { border-radius: 3px; min-height: 36px; }
+.dr-main { display: flex; flex-direction: column; justify-content: center; gap: 3px; min-width: 0; }
+.dr-title { font-weight: bold; font-size: calc(15px * var(--fs)); overflow-wrap: anywhere; }
+.dr-note { font-size: calc(12px * var(--fs)); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dr-chev { align-self: center; color: var(--muted); font-size: calc(20px * var(--fs)); padding-right: 2px; }
+.day-list-actions .active { background: var(--selected); }
+.day-list .day-colors { margin-top: 8px; }
+
 /* 予定1件のポップアップ */
 .modal-backdrop { position: fixed; inset: 0; background: #0006; display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
 .modal {
@@ -255,6 +276,9 @@ a.button {
 a.button.ghost { color: var(--text); border: 1px solid var(--border); }
 a.button.disabled { opacity: 0.5; pointer-events: none; }
 .editor input.invalid { border-color: var(--error); }
+.editor .field-inline select { flex: 1; min-width: 0; }
+.tpl-mode { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.tpl-mode .seg button { padding: 3px 10px; font-size: calc(13px * var(--fs)); }
 .place-note { font-size: calc(13px * var(--fs)); margin: 2px 0; color: var(--text); }
 .place-note.muted { color: var(--muted); }
 

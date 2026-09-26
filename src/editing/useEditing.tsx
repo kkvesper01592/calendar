@@ -302,6 +302,10 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
           target={editor}
           calendars={eventCalendars}
           colors={colors}
+          templates={templates}
+          timeMode={timeMode}
+          onTimeMode={setTimeMode}
+          suggestStart={suggestStart}
           onCancel={() => setEditor(null)}
           onSave={async (cal, body, eventId) => {
             if (!token) return

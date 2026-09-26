@@ -214,7 +214,6 @@ export default function App() {
     isMemo: editing.isMemo,
     onAdd: editing.canCreate ? () => editing.startCreate(selected) : undefined,
     onMemo: editing.canMemo ? (existing?: DisplayEvent) => editing.startMemo(selected, existing) : undefined,
-    onQuickAdd: editing.canCreate ? () => editing.startQuickAdd(selected) : undefined,
     dayColor: prefs.dayColors[ymd(selected)],
     onDayColor: (c: string | null) => {
       const next = { ...prefs.dayColors }
@@ -388,7 +387,7 @@ export default function App() {
         {settings}
         {content}
         {sidePanel && (
-          <DayList day={selected} events={selectedEvents} showTime={showTime} onOpen={openItem} onShowDay={() => showDay(selected)} hover={hover.handlers} {...dayListEditProps} />
+          <DayList day={selected} events={selectedEvents} showTime={showTime} onOpen={openItem} hover={hover.handlers} {...dayListEditProps} />
         )}
       </main>
     )
@@ -484,7 +483,6 @@ export default function App() {
               showTime={showTime}
               onOpen={openItem}
               onClose={() => setSheetOpen(false)}
-              onShowDay={() => showDay(selected)}
               hover={hover.handlers}
               {...dayListEditProps}
             />

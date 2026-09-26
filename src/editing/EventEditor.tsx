@@ -3,7 +3,7 @@ import type { CalendarEvent, CalendarListEntry, EventDateTime } from '../google/
 import type { Colors } from '../calendar/useRangeEvents'
 import { addDays, eventRange, hhmm, isAllDay, localIso, ymd } from '../lib/dates'
 import { isMapUrl, mapSearchUrl, eventMapUrl, parsePastedPlace } from '../lib/maps'
-import { templateToEvent, type Template } from './templates'
+import { describeTemplate, templateToEvent, type Template, type TemplateTimeMode } from './templates'
 import { isAppCalendar } from '../google/calendarWriteApi'
 import { buildRecurrence, defaultRepeat, describeRepeat, parseRecurrence, type RepeatForm, type RepeatKind } from './recurrence'
 
@@ -19,6 +19,11 @@ interface Props {
   colors: Colors | null
   onSave: (calendar: CalendarListEntry, body: Partial<CalendarEvent>, eventId?: string) => Promise<void>
   onCancel: () => void
+  // 追加のときだけ使う: テンプレートのプルダウン
+  templates?: Template[]
+  timeMode?: TemplateTimeMode
+  onTimeMode?: (m: TemplateTimeMode) => void
+  suggestStart?: (date: Date) => Date | undefined // その日の最後の予定の終了時刻
 }
 
 const WD = ['日', '月', '火', '水', '木', '金', '土']
@@ -135,7 +140,8 @@ function changedFields(orig: CalendarEvent, next: Partial<CalendarEvent>, allDay
 }
 
 /** 予定の作成・編集フォーム */
-export default function EventEditor({ target, calendars, colors, onSave, onCancel }: Props) {
+export default function EventEditor({ target, calendars, colors, onSave, onCancel, templates = [], timeMode = 'template', onTimeMode, suggestStart }: Props) {
+  const [templateId, setTemplateId] = useState('')
   const [s, setS] = useState(() => initialState(target, calendars))
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
@@ -160,6 +166,22 @@ export default function EventEditor({ target, calendars, colors, onSave, onCance
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onCancel, saving])
+
+  /** テンプレートを選んだら、その内容をフォームに入れる(日付はそのまま。「なし」に戻しても入力は消さない) */
+  function pickTemplate(id: string, mode: TemplateTimeMode) {
+    setTemplateId(id)
+    const t = templates.find((x) => x.id === id)
+    if (!t) return
+    const date = new Date(`${s.sd}T00:00`)
+    const start = mode === 'after' && !t.allDay ? suggestStart?.(date) : undefined
+    const calId = calendars.some((c) => c.id === t.calendarId) ? t.calendarId! : s.calendarId
+    setS(fromEvent(templateToEvent(t, date, start) as CalendarEvent, calId))
+  }
+
+  function changeTimeMode(m: TemplateTimeMode) {
+    onTimeMode?.(m)
+    if (templateId) pickTemplate(templateId, m)
+  }
 
   // 貼り付けで「場所」を書き換えたときのお知らせ(元の文字に戻せるように)
   const [placeNote, setPlaceNote] = useState<{ kind: 'updated'; prev: string } | { kind: 'shortLink' } | null>(null)
@@ -287,6 +309,31 @@ export default function EventEditor({ target, calendars, colors, onSave, onCance
           <span>タイトル</span>
           <input autoFocus value={s.title} onChange={(e) => set('title', e.target.value)} placeholder="(タイトルなし)" />
         </label>
+
+        {target.mode === 'create' && (
+          <div className="field">
+            <span>テンプレート</span>
+            <div className="field-inline">
+              <select value={templateId} onChange={(e) => pickTemplate(e.target.value, timeMode)} disabled={!templates.length}>
+                <option value="">{templates.length ? 'なし' : 'なし(予定の詳細の「テンプレートに保存」で作れます)'}</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.title || '(タイトルなし)'} {describeTemplate(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {templateId && (
+              <div className="tpl-mode">
+                <span className="small-text muted">開始時刻</span>
+                <div className="seg">
+                  <button type="button" className={timeMode === 'template' ? 'on' : ''} onClick={() => changeTimeMode('template')}>テンプレートの時刻</button>
+                  <button type="button" className={timeMode === 'after' ? 'on' : ''} onClick={() => changeTimeMode('after')}>最後の予定の後</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <label className="field">
           <span>カレンダー</span>
