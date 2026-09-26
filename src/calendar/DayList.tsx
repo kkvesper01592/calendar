@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { holidayName } from '../lib/holidays'
 import { rokuyo, toLunar } from '../lib/lunar'
-import { firstLine, mdw, timesOnDay } from '../lib/dates'
+import { WEEKDAYS, firstLine, timesOnDay } from '../lib/dates'
 import type { DisplayEvent } from './useRangeEvents'
 import type { HoverHandlers } from './HoverPreview'
 import { DAY_COLORS } from '../settings/prefs'
@@ -35,7 +35,9 @@ export default function DayList({ day, events: all, showTime, onOpen, onClose, h
     <aside className="day-list">
       <div className="day-list-head">
         <div>
-          <h2>{mdw(day)}</h2>
+          <h2>
+            {y}年{m}月{d}日 ({WEEKDAYS[day.getDay()]})
+          </h2>
           <p className="day-sub">
             {hol && <span className="holiday-tag">{hol}</span>}
             {rokuyo(y, m, d)} ／ 旧暦 {lunar.leap ? '閏' : ''}
