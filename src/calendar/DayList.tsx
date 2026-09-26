@@ -73,7 +73,7 @@ export default function DayList({ day, events: all, showTime, onOpen, onClose, h
             const note = firstLine(item.ev.description)
             return (
               <li key={item.key}>
-                <button className="day-row" onClick={() => onOpen(item)} {...hover?.(item)}>
+                <button className={`day-row ${showTime ? '' : 'no-time'}`} onClick={() => onOpen(item)} {...hover?.(item)}>
                   {showTime && (
                     <span className="dr-time">
                       {t ? (

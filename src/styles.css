@@ -188,6 +188,8 @@ button.chip:focus-visible { outline: 2px solid var(--accent); }
   display: grid; grid-template-columns: auto 6px minmax(0, 1fr) auto; align-items: stretch; gap: 10px;
   padding: 8px 2px;
 }
+/* 時刻を表示しないときは、時刻の列を除いた3列 */
+.day-row.no-time { grid-template-columns: 6px minmax(0, 1fr) auto; }
 .day-row:hover, .day-row:focus-visible { background: var(--selected); }
 .dr-time {
   display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;
