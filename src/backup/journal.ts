@@ -11,6 +11,7 @@ export interface JournalEntry {
   eventId: string
   before: CalendarEvent | null
   after: CalendarEvent | null
+  movedFrom?: { calendarId: string; calendarName: string } // 別のカレンダーから移したとき(calendarId が移動先)
 }
 
 /** 変更履歴を端末(IndexedDB)に保存し、PC で保存先フォルダの許可があれば「変更履歴」フォルダにも追記する */

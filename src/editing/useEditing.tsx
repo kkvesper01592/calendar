@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { AccessToken } from '../google/auth'
 import { getEvent, type CalendarEvent, type CalendarListEntry } from '../google/calendarReadApi'
-import { canWrite, canWriteCalendar, createAppCalendar, createEvent, deleteEvent, isAppCalendar, isMemoCalendar, undoChange, updateEvent } from '../google/calendarWriteApi'
+import { canWrite, canWriteCalendar, createAppCalendar, createEvent, deleteEvent, isAppCalendar, isMemoCalendar, moveEvent, undoChange, updateEvent } from '../google/calendarWriteApi'
 import { getAutoDir, isDueToday, permission, requestPermission, runBackupTo, setAutoDir } from '../backup/autoBackup'
 import { canPickFolder, pickFolder } from '../backup/saveToFolder'
 import type { JournalEntry } from '../backup/journal'
@@ -201,7 +201,7 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
             setConfirm(null)
             run(async () => {
               await ensureBackup(cal)
-              await undoChange(token, cal, entry)
+              await undoChange(token, cal, entry, (id) => calendars.find((c) => c.id === id))
               onNotice(`「${title}」を元に戻しました`)
               after?.()
             })
@@ -311,9 +311,15 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
           onCancel={() => setEditor(null)}
           onSave={async (cal, body, eventId) => {
             if (!token) return
+            // 編集中にカレンダーを変えたときは、内容の変更を元のカレンダーで保存してから移動する
+            const orig = editor.mode === 'edit' ? editor.calendar : undefined
+            const moving = !!orig && orig.id !== cal.id
             await ensureBackup(cal)
-            if (eventId) await updateEvent(token, cal, eventId, body)
-            else await createEvent(token, cal, body)
+            if (moving) await ensureBackup(orig!)
+            if (eventId) {
+              if (Object.keys(body).length) await updateEvent(token, orig ?? cal, eventId, body)
+              if (moving) await moveEvent(token, orig!, cal, eventId)
+            } else await createEvent(token, cal, body)
             setEditor(null)
             onChanged()
           }}

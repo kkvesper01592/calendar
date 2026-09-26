@@ -78,6 +78,21 @@ export function installDemo() {
       return json(cal)
     }
 
+    // 予定を別のカレンダーへ移す(Google の events.move 相当)
+    const mv = /\/calendars\/([^/]+)\/events\/([^/]+)\/move$/.exec(p)
+    if (mv && method === 'POST') {
+      const from = decodeURIComponent(mv[1])
+      const to = url.searchParams.get('destination') ?? ''
+      const canWriteCal = (id: string) => appCreated.has(id) || grantedScope.includes('calendar.events')
+      if (!canWriteCal(from) || !canWriteCal(to)) return json({ error: { message: 'Insufficient Permission (demo)' } }, 403)
+      const src = (events[from] ??= []) as Record<string, unknown>[]
+      const i = src.findIndex((e) => e.id === decodeURIComponent(mv[2]))
+      if (i < 0) return new Response('{}', { status: 404 })
+      const [ev] = src.splice(i, 1)
+      ;((events[to] ??= []) as Record<string, unknown>[]).push(ev)
+      return json(ev)
+    }
+
     const m = /\/calendars\/([^/]+)\/events(?:\/([^/]+))?$/.exec(p)
     if (!m) return new Response('{}', { status: 404 })
     const calId = decodeURIComponent(m[1])

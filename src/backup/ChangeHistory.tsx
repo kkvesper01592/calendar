@@ -34,6 +34,7 @@ export default function ChangeHistory({ onUndo }: { onUndo?: (e: JournalEntry, d
                 <span className={`hist-action ${e.action}`}>{ACTION[e.action]}</span>
                 <span className="hist-body">
                   <b>{ev?.summary || '(タイトルなし)'}</b>
+                  {e.movedFrom && <span className="muted">(カレンダーを移動: {e.movedFrom.calendarName} → {e.calendarName})</span>}
                   {e.action === 'update' && e.before?.summary !== e.after?.summary && (
                     <span className="muted">(変更前: {e.before?.summary || '(タイトルなし)'})</span>
                   )}

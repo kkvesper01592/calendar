@@ -287,7 +287,8 @@ export default function EventEditor({ target, calendars, colors, onSave, onCance
     if (target.mode === 'edit') {
       // 編集は「変わった項目だけ」を送る。何も変わっていなければ Google には何も送らない
       body = changedFields(target.event, full, s.allDay, repeatTouched && !instance, !!s.colorId)
-      if (Object.keys(body).length === 0) return onCancel()
+      // カレンダーの変更(移動)も「変更あり」として扱う
+      if (Object.keys(body).length === 0 && s.calendarId === target.calendar.id) return onCancel()
     }
     setSaving(true)
     try {
@@ -358,7 +359,7 @@ export default function EventEditor({ target, calendars, colors, onSave, onCance
 
         <label className="field">
           <span>カレンダー</span>
-          <select value={s.calendarId} onChange={(e) => set('calendarId', e.target.value)} disabled={isEdit}>
+          <select value={s.calendarId} onChange={(e) => set('calendarId', e.target.value)} disabled={instance}>
             {calendars.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.summaryOverride || c.summary}
@@ -366,6 +367,12 @@ export default function EventEditor({ target, calendars, colors, onSave, onCance
               </option>
             ))}
           </select>
+          {instance && (
+            <span className="hint small-text">繰り返しの「この予定のみ」は別のカレンダーに移せません。移すときは「すべての繰り返し」で編集してください。</span>
+          )}
+          {target.mode === 'edit' && s.calendarId !== target.calendar.id && (
+            <span className="hint small-text">保存すると、この予定を「{calendars.find((c) => c.id === s.calendarId)?.summary}」へ移します。</span>
+          )}
         </label>
 
         <label className="check">

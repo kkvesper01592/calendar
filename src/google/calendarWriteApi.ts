@@ -103,12 +103,46 @@ export async function deleteEvent(token: AccessToken, cal: CalendarListEntry, ev
   await recordChange({ at: now(), action: 'delete', calendarId: cal.id, calendarName: calName(cal), eventId, before, after: null })
 }
 
+/** 予定を別のカレンダーへ移す(予定の ID はそのまま)。移動元・移動先の両方に書き込める必要がある */
+export async function moveEvent(token: AccessToken, from: CalendarListEntry, to: CalendarListEntry, eventId: string) {
+  guard(token, from)
+  guard(token, to)
+  const before = await getEvent(token, from.id, eventId) // 移動前を必ず残す
+  const after = (await send<CalendarEvent>(
+    token,
+    'POST',
+    `${evPath(from.id, eventId)}/move?destination=${encodeURIComponent(to.id)}`,
+  ))!
+  await recordChange({
+    at: now(),
+    action: 'update',
+    calendarId: to.id,
+    calendarName: calName(to),
+    eventId: after.id,
+    before,
+    after,
+    movedFrom: { calendarId: from.id, calendarName: calName(from) },
+  })
+  return after
+}
+
 // 元に戻すときに書き戻す項目
 const RESTORE_KEYS = ['summary', 'description', 'location', 'start', 'end', 'recurrence', 'reminders', 'colorId', 'extendedProperties', 'transparency'] as const
 
-/** 変更履歴の1件を元に戻す(変更→変更前の内容に、削除→復元、追加→削除) */
-export async function undoChange(token: AccessToken, cal: CalendarListEntry, entry: JournalEntry) {
+/** 変更履歴の1件を元に戻す(変更→変更前の内容に、移動→元のカレンダーへ、削除→復元、追加→削除) */
+export async function undoChange(
+  token: AccessToken,
+  cal: CalendarListEntry,
+  entry: JournalEntry,
+  findCalendar: (id: string) => CalendarListEntry | undefined = () => undefined,
+) {
   if (entry.action === 'create') return deleteEvent(token, cal, entry.eventId)
+
+  if (entry.action === 'update' && entry.movedFrom) {
+    const orig = findCalendar(entry.movedFrom.calendarId)
+    if (!orig) throw new Error(`移動元のカレンダー「${entry.movedFrom.calendarName}」が見つかりません`)
+    return moveEvent(token, cal, orig, entry.eventId)
+  }
 
   if (entry.action === 'update') {
     const before = entry.before!
