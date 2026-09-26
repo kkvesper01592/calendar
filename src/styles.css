@@ -279,6 +279,19 @@ a.button.ghost { color: var(--text); border: 1px solid var(--border); }
 a.button.disabled { opacity: 0.5; pointer-events: none; }
 .editor input.invalid { border-color: var(--error); }
 .editor .field-inline select { flex: 1; min-width: 0; }
+.past-results { list-style: none; margin: 4px 0 0; padding: 0; max-height: 210px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+.past-results li + li { border-top: 1px solid var(--border); }
+.past-row {
+  all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; font-size: calc(13px * var(--fs));
+}
+.past-row:hover { background: var(--selected); }
+.past-row.on { background: color-mix(in srgb, var(--accent) 30%, var(--card)); }
+.past-row .bar { width: 4px; align-self: stretch; border-radius: 2px; flex: none; }
+.past-when { color: var(--muted); white-space: nowrap; flex: none; font-size: calc(12px * var(--fs)); }
+.past-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.past-apply { margin-top: 6px; }
+.past-apply .tpl-mode { margin-top: 4px; }
 .tpl-mode { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .tpl-mode .seg button { padding: 3px 10px; font-size: calc(13px * var(--fs)); }
 .place-note { font-size: calc(13px * var(--fs)); margin: 2px 0; color: var(--text); }

@@ -167,17 +167,24 @@ export function timesOnDay(ev: CalendarEvent, day: Date): { start: string; end: 
   }
 }
 
-/** メモ(説明欄。HTML のこともある)の最初の1行 */
-export function firstLine(description: string | undefined): string {
+/** メモ(説明欄)を普通の文字に。Google カレンダーで書いたメモは <br> などの HTML を含むことがある */
+export function htmlToText(description: string | undefined): string {
   if (!description) return ''
-  const text = description
+  if (!/<[a-z!/][^>]*>|&(nbsp|amp|lt|gt|quot|#39);/i.test(description)) return description
+  return description
     .replace(/<br\s*\/?>|<\/(p|div|li)>/gi, '\n')
     .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-  return text.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
+/** メモの最初の1行 */
+export function firstLine(description: string | undefined): string {
+  return htmlToText(description).split('\n').map((l) => l.trim()).find(Boolean) ?? ''
 }
 
 /** 背景色に対して読みやすい文字色 */

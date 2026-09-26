@@ -23,12 +23,13 @@ interface Options {
   onError: (e: unknown) => void
   onNotice: (msg: string) => void
   suggestStart: (date: Date) => Date | undefined // 新しい予定の開始時刻の候補(その日の最後の予定の終了時刻)
+  searchPast?: (query: string) => Promise<DisplayEvent[]> // 追加画面の「予定の検索」
 }
 
 type Confirm = { title: string; message?: string; choices: Choice[] }
 
 /** 予定の追加・編集・削除と日付メモの画面の流れをまとめる */
-export function useEditing({ token, calendars, colors, onChanged, onCalendarsChanged, onError, onNotice, suggestStart }: Options) {
+export function useEditing({ token, calendars, colors, onChanged, onCalendarsChanged, onError, onNotice, suggestStart, searchPast }: Options) {
   const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [memo, setMemo] = useState<{ date: Date; existing?: DisplayEvent } | null>(null)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
@@ -306,6 +307,7 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
           timeMode={timeMode}
           onTimeMode={setTimeMode}
           suggestStart={suggestStart}
+          searchPast={searchPast}
           onCancel={() => setEditor(null)}
           onSave={async (cal, body, eventId) => {
             if (!token) return

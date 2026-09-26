@@ -9,6 +9,7 @@ import YearView from './calendar/YearView'
 import DayList from './calendar/DayList'
 import EventDetail from './calendar/EventDetail'
 import SearchView from './calendar/SearchView'
+import { searchEvents } from './calendar/searchIndex'
 import { HoverCard, useHoverPreview } from './calendar/HoverPreview'
 import BackupPanel from './backup/BackupPanel'
 import ChangeHistory from './backup/ChangeHistory'
@@ -201,6 +202,8 @@ export default function App() {
     onCalendarsChanged: () => setCalendars([]),
     onError: handleError,
     onNotice: setNotice,
+    // 追加画面の「予定の検索」: 表示中のカレンダー(日付メモを除く)から探す
+    searchPast: token ? (q) => searchEvents(token, visibleCalendars.filter((c) => !isMemoCalendar(c)), colors, q, reloadKey) : undefined,
     suggestStart: (date) => {
       // その日に終わる時間指定の予定のうち、一番遅い終了時刻(終日・日付メモ・翌日にまたがる予定は除く)
       const ends = (byDay.get(ymd(date)) ?? [])

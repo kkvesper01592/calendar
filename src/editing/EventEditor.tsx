@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { CalendarEvent, CalendarListEntry, EventDateTime } from '../google/calendarReadApi'
 import type { Colors } from '../calendar/useRangeEvents'
-import { addDays, eventRange, hhmm, isAllDay, localIso, ymd } from '../lib/dates'
+import { addDays, eventRange, hhmm, htmlToText, isAllDay, localIso, ymd } from '../lib/dates'
 import { isMapUrl, mapSearchUrl, eventMapUrl, parsePastedPlace } from '../lib/maps'
-import { describeTemplate, templateToEvent, type Template, type TemplateTimeMode } from './templates'
+import { describeTemplate, templateFromEvent, templateToEvent, type Template, type TemplateTimeMode } from './templates'
+import PastSearch from './PastSearch'
+import type { DisplayEvent } from '../calendar/useRangeEvents'
 import { isAppCalendar } from '../google/calendarWriteApi'
 import { buildRecurrence, defaultRepeat, describeRepeat, parseRecurrence, type RepeatForm, type RepeatKind } from './recurrence'
 
@@ -24,6 +26,7 @@ interface Props {
   timeMode?: TemplateTimeMode
   onTimeMode?: (m: TemplateTimeMode) => void
   suggestStart?: (date: Date) => Date | undefined // その日の最後の予定の終了時刻
+  searchPast?: (query: string) => Promise<DisplayEvent[]> // 過去の予定の検索
 }
 
 const WD = ['日', '月', '火', '水', '木', '金', '土']
@@ -68,7 +71,7 @@ function fromEvent(ev: CalendarEvent, calendarId: string) {
     colorId: typeof ev.colorId === 'string' ? ev.colorId : '',
     location: ev.location ?? '',
     mapUrl: eventMapUrl(ev) ?? '',
-    description: ev.description ?? '',
+    description: htmlToText(ev.description), // <br> などは改行に
   }
 }
 
@@ -116,7 +119,8 @@ function changedFields(orig: CalendarEvent, next: Partial<CalendarEvent>, allDay
   const d: Partial<CalendarEvent> = {}
   if ((orig.summary ?? '') !== next.summary) d.summary = next.summary
   if ((orig.location ?? '') !== next.location) d.location = next.location
-  if ((orig.description ?? '') !== next.description) d.description = next.description
+  // メモは表示用に HTML を文字にしているので、同じ変換をした元の内容と比べる(触っていなければ送らない)
+  if (htmlToText(orig.description) !== next.description) d.description = next.description
   const nextMap = next.extendedProperties?.private?.mapUrl ?? ''
   if ((eventMapUrl(orig) ?? '') !== nextMap) d.extendedProperties = { private: { mapUrl: nextMap } }
   if (!sameWhen(orig.start, next.start) || !sameWhen(orig.end, next.end)) {
@@ -140,7 +144,7 @@ function changedFields(orig: CalendarEvent, next: Partial<CalendarEvent>, allDay
 }
 
 /** 予定の作成・編集フォーム */
-export default function EventEditor({ target, calendars, colors, onSave, onCancel, templates = [], timeMode = 'template', onTimeMode, suggestStart }: Props) {
+export default function EventEditor({ target, calendars, colors, onSave, onCancel, templates = [], timeMode = 'template', onTimeMode, suggestStart, searchPast }: Props) {
   const [templateId, setTemplateId] = useState('')
   const [s, setS] = useState(() => initialState(target, calendars))
   const [saving, setSaving] = useState(false)
@@ -171,7 +175,11 @@ export default function EventEditor({ target, calendars, colors, onSave, onCance
   function pickTemplate(id: string, mode: TemplateTimeMode) {
     setTemplateId(id)
     const t = templates.find((x) => x.id === id)
-    if (!t) return
+    if (t) applyTemplate(t, mode)
+  }
+
+  /** ひな形(テンプレート・検索でコピーした予定)の内容をフォームへ。日付は今の開始日のまま */
+  function applyTemplate(t: Template, mode: TemplateTimeMode) {
     const date = new Date(`${s.sd}T00:00`)
     const start = mode === 'after' && !t.allDay ? suggestStart?.(date) : undefined
     const calId = calendars.some((c) => c.id === t.calendarId) ? t.calendarId! : s.calendarId
@@ -333,6 +341,19 @@ export default function EventEditor({ target, calendars, colors, onSave, onCance
               </div>
             )}
           </div>
+        )}
+
+        {target.mode === 'create' && searchPast && (
+          <PastSearch
+            search={searchPast}
+            timeMode={timeMode}
+            onTimeMode={onTimeMode}
+            onApply={(item, mode) => {
+              // 過去の予定の内容をコピー(繰り返しの設定はコピーしない)
+              setTemplateId('')
+              applyTemplate(templateFromEvent(item.ev, item.calendar.id), mode)
+            }}
+          />
         )}
 
         <label className="field">

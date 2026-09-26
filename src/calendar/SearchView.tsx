@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { AccessToken } from '../google/auth'
-import { listAllExpanded, type CalendarEvent, type CalendarListEntry } from '../google/calendarReadApi'
+import type { CalendarListEntry } from '../google/calendarReadApi'
 import { describeWhen, eventRange } from '../lib/dates'
-import { toDisplay, type Colors, type DisplayEvent } from './useRangeEvents'
+import type { Colors, DisplayEvent } from './useRangeEvents'
+import { searchEvents } from './searchIndex'
 import { EventBody } from './EventDetail'
 import { useMediaQuery } from '../lib/useMediaQuery'
 
@@ -17,24 +18,6 @@ interface Props {
   onError: (e: unknown) => void
 }
 
-// 検索用に読み込んだ予定(メモリ上だけ)。「更新」を押すと読み直す
-const indexCache = new Map<string, CalendarEvent[]>()
-let cacheReloadKey = -1
-
-/** 全角/半角・大文字/小文字・数字のカンマ区切りの違いを無視して比べるための正規化 */
-function normalize(s: string | undefined): string {
-  return (s ?? '')
-    .replace(/<[^>]*>/g, ' ') // 説明欄の HTML タグ
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/(\d),(?=\d{3})/g, '$1')
-}
-
-function matches(ev: CalendarEvent, words: string[]): boolean {
-  const text = normalize([ev.summary, ev.description, ev.location].join('\n'))
-  return words.every((w) => text.includes(w))
-}
-
 /** 検索結果: 今日以降の予定と過去の予定(新しい順)に分けて表示。スペース区切りは「すべて含む」 */
 export default function SearchView({ token, calendars, colors, query, reloadKey, onOpen, onClose, onError }: Props) {
   const [results, setResults] = useState<DisplayEvent[] | null>(null)
@@ -47,26 +30,9 @@ export default function SearchView({ token, calendars, colors, query, reloadKey,
     let cancelled = false
     setResults(null)
     setPreview(null)
-    if (cacheReloadKey !== reloadKey) {
-      indexCache.clear()
-      cacheReloadKey = reloadKey
-    }
-    const words = normalize(query).split(/\s+/).filter(Boolean)
-    ;(async () => {
-      const found: DisplayEvent[] = []
-      for (const [i, cal] of calendars.entries()) {
-        let items = indexCache.get(cal.id)
-        if (!items) {
-          setProgress(`予定を読み込み中… (${i + 1}/${calendars.length})`)
-          items = await listAllExpanded(token, cal.id)
-          indexCache.set(cal.id, items)
-        }
-        for (const ev of items) if (ev.status !== 'cancelled' && ev.start && matches(ev, words)) found.push(toDisplay(ev, cal, colors))
-      }
-      if (cancelled) return
-      found.sort((a, b) => eventRange(a.ev).start.getTime() - eventRange(b.ev).start.getTime())
-      setResults(found)
-    })().catch((e) => !cancelled && onError(e))
+    searchEvents(token, calendars, colors, query, reloadKey, setProgress)
+      .then((found) => !cancelled && setResults(found))
+      .catch((e) => !cancelled && onError(e))
     return () => {
       cancelled = true
     }
