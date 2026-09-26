@@ -177,7 +177,7 @@ button.chip:focus-visible { outline: 2px solid var(--accent); }
 .row:hover, .row:focus-visible { background: var(--selected); }
 .row .bar { width: 4px; align-self: stretch; border-radius: 2px; flex: none; }
 .row-time { font-size: calc(12px * var(--fs)); color: var(--muted); white-space: nowrap; flex: none; min-width: 7.2em; }
-.row-when { font-size: calc(12px * var(--fs)); color: var(--muted); white-space: nowrap; flex: none; min-width: 12em; }
+.row-when { font-size: calc(12px * var(--fs)); color: var(--muted); white-space: nowrap; flex: none; min-width: 17.5em; font-variant-numeric: tabular-nums; }
 .row-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
 /* 日付を選んだときの予定一覧(左に開始・終了、色の帯、タイトルとメモの1行目) */

@@ -135,17 +135,19 @@ export function eventDayKeys(ev: CalendarEvent): string[] {
   return keys
 }
 
-/** 予定の日時を人が読む形で(例: 9月25日(金) 18:00 – 19:00) */
+/** 予定の日時を人が読む形で。年は常に付ける(例: 2026年9月25日(金) 18:00 – 19:00) */
 export function describeWhen(ev: CalendarEvent): string {
   const { start, end } = eventRange(ev)
+  const ymdw = (d: Date) => `${d.getFullYear()}年${mdw(d)}`
+  // 終わりの日は、年が変わるときだけ年を付ける(例: 2025年12月30日(火) 〜 2026年1月2日(金))
+  const endDay = (d: Date) => (d.getFullYear() === start.getFullYear() ? mdw(d) : ymdw(d))
   if (isAllDay(ev)) {
     const last = addDays(end, -1)
-    return sameDay(start, last) || last < start ? `${mdw(start)} 終日` : `${mdw(start)} 〜 ${mdw(last)} 終日`
+    return sameDay(start, last) || last < start ? `${ymdw(start)} 終日` : `${ymdw(start)} 〜 ${endDay(last)} 終日`
   }
-  const y = start.getFullYear() !== new Date().getFullYear() ? `${start.getFullYear()}年` : ''
   return sameDay(start, end)
-    ? `${y}${mdw(start)} ${hhmm(start)} – ${hhmm(end)}`
-    : `${y}${mdw(start)} ${hhmm(start)} – ${mdw(end)} ${hhmm(end)}`
+    ? `${ymdw(start)} ${hhmm(start)} – ${hhmm(end)}`
+    : `${ymdw(start)} ${hhmm(start)} – ${endDay(end)} ${hhmm(end)}`
 }
 
 /** その日の中での時刻表示(日をまたぐ予定は「前日から」「翌日へ」) */
