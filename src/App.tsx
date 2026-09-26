@@ -141,6 +141,34 @@ export default function App() {
       .catch(handleError)
   }, [token, calendars.length, handleError])
 
+  // 一覧の中身が変わったときだけ差し替える(同じなら予定を読み直さない)
+  const replaceCalendars = (items: CalendarListEntry[]) =>
+    setCalendars((cur) => (JSON.stringify(cur) === JSON.stringify(items) ? cur : items))
+
+  // 「更新」: Google で追加・名前変更したカレンダーも反映するため、一覧から読み直してから予定を読み込む
+  async function refresh() {
+    if (token) {
+      try {
+        replaceCalendars((await listCalendars(token)).items)
+      } catch (e) {
+        handleError(e)
+      }
+    }
+    setReloadKey((k) => k + 1)
+  }
+
+  // 設定画面を開いたときも一覧を読み直す(「既存カレンダーの編集」に新しいカレンダーを出すため)
+  useEffect(() => {
+    if (tab !== 'settings' || !token) return
+    let cancelled = false
+    listCalendars(token)
+      .then((list) => !cancelled && replaceCalendars(list.items))
+      .catch(handleError)
+    return () => {
+      cancelled = true
+    }
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // その日最初の自動バックアップ
   useEffect(() => {
     if (!token || !calendars.length || !canPickFolder() || !isDueToday()) return
@@ -454,7 +482,7 @@ export default function App() {
           <button className={`small ghost ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab(tab === 'settings' ? 'calendar' : 'settings')}>
             設定
           </button>
-          <button className="small ghost" onClick={() => setReloadKey((k) => k + 1)} title="Google から再読み込み">更新</button>
+          <button className="small ghost" onClick={refresh} title="Google から再読み込み">更新</button>
           <button className="small ghost" onClick={logout}>ログアウト</button>
         </div>
       </header>

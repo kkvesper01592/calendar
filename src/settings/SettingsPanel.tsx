@@ -18,6 +18,7 @@ interface Props {
 /** 見た目・週・テンプレートの設定 */
 export default function SettingsPanel({ prefs, onChange, templates, onTemplatesChange, calendars, canEditExisting, onOpenImport }: Props) {
   const existing = calendars.filter((c) => !isAppCalendar(c))
+  const appMade = calendars.filter(isAppCalendar)
   const set = <K extends keyof Prefs>(k: K, v: Prefs[K]) => onChange({ ...prefs, [k]: v })
   const coloredDays = Object.keys(prefs.dayColors).sort()
   const updateTpl = (id: string, patch: Partial<Template>) => onTemplatesChange(templates.map((t) => (t.id === id ? { ...t, ...patch } : t)))
@@ -134,6 +135,23 @@ export default function SettingsPanel({ prefs, onChange, templates, onTemplatesC
             })}
           </ul>
         )}
+        {appMade.length > 0 && (
+          <>
+            <p className="hint small-text">このアプリが作ったカレンダー(許可しなくても、いつでも追加・変更・削除できます):</p>
+            <ul className="cal-list">
+              {appMade.map((c) => (
+                <li key={c.id}>
+                  <label className="muted">
+                    <input type="checkbox" checked disabled />
+                    <span className="swatch" style={{ background: c.backgroundColor as string }} />
+                    {c.summaryOverride || c.summary}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <p className="hint small-text">Google カレンダーで追加したカレンダーが見当たらないときは、右上の「更新」を押してください。</p>
       </section>
 
       <section className="card settings">
