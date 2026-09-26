@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.local
+
+# 予定データは絶対にリポジトリへ入れない
+*.ics
+backup_*/
+*backup*.json
+予定一覧*.html
+*.tsbuildinfo
+
+# ローカル専用の設定
+.claude/
