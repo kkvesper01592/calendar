@@ -1,7 +1,7 @@
 import type { AccessToken } from './auth'
 import { hasScope } from './auth'
 import { AuthExpiredError, getEvent, type CalendarEvent, type CalendarListEntry } from './calendarReadApi'
-import { MARK_MEMO, MARK_TEST, SCOPE_APP_CREATED, SCOPE_EVENTS } from '../config'
+import { MARK_IMPORT, MARK_MEMO, MARK_TEST, SCOPE_APP_CREATED, SCOPE_EVENTS } from '../config'
 import { recordChange, type JournalEntry } from '../backup/journal'
 
 // 予定を書き換える処理はすべてこのファイルに集める。安全装置:
@@ -14,7 +14,7 @@ const BASE = 'https://www.googleapis.com/calendar/v3'
 
 export const isAppCalendar = (cal: CalendarListEntry) => {
   const d = typeof cal.description === 'string' ? cal.description : ''
-  return d.includes(MARK_TEST) || d.includes(MARK_MEMO)
+  return d.includes(MARK_TEST) || d.includes(MARK_MEMO) || d.includes(MARK_IMPORT)
 }
 export const isMemoCalendar = (cal: CalendarListEntry) =>
   typeof cal.description === 'string' && cal.description.includes(MARK_MEMO)
@@ -124,6 +124,29 @@ export async function moveEvent(token: AccessToken, from: CalendarListEntry, to:
     movedFrom: { calendarId: from.id, calendarName: calName(from) },
   })
   return after
+}
+
+export const isImportCalendar = (cal: CalendarListEntry) =>
+  typeof cal.description === 'string' && cal.description.includes(MARK_IMPORT)
+
+/**
+ * 取り込み専用カレンダーへの1件登録(大量登録用)。変更履歴には1件ずつ残さない
+ * (取り込みは専用カレンダーにしか入らず、やり直しはカレンダーごと消せば済むため)。
+ * Google から「送信が多すぎる」と言われたら、間を空けて最大5回までやり直す
+ */
+export async function insertImported(token: AccessToken, cal: CalendarListEntry, body: Partial<CalendarEvent>) {
+  if (!isImportCalendar(cal)) throw new Error('取り込みは専用カレンダーにだけ行えます')
+  guard(token, cal)
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return (await send<CalendarEvent>(token, 'POST', evPath(cal.id), body))!
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const retryable = /\((403|429|5\d\d)\b/.test(msg) && /(Rate|rate|limit|Limit|quota|Backend|5\d\d)/.test(msg)
+      if (!retryable || attempt >= 5) throw e
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))
+    }
+  }
 }
 
 // 元に戻すときに書き戻す項目

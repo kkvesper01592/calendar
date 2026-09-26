@@ -335,6 +335,29 @@ a.button.disabled { opacity: 0.5; pointer-events: none; }
 .colored-days { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
 .colored-day { font-size: calc(12px * var(--fs)); padding: 2px 8px; border-radius: 4px; color: #1f2328; }
 
+/* テキストの取り込み */
+.single.import-wide { max-width: 1240px; }
+.back { margin-bottom: 10px; }
+.import-step { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 12px; }
+.import-step h3 { margin: 0 0 8px; font-size: calc(15px * var(--fs)); }
+.import-opts { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: calc(14px * var(--fs)); }
+.import-opts input { font: inherit; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+.import-opts input.num { width: 4.5em; }
+.import-opts .check { margin: 0; }
+.table-wrap { overflow-x: auto; max-height: 480px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin: 8px 0; }
+.import-table { border-collapse: collapse; width: 100%; font-size: calc(12.5px * var(--fs)); }
+.import-table th { position: sticky; top: 0; background: var(--card); z-index: 1; }
+.import-table th, .import-table td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+.import-table .nowrap { white-space: nowrap; }
+.import-table .memo-cell { max-width: 380px; color: var(--muted); overflow-wrap: anywhere; }
+.import-table .warn-row { background: color-mix(in srgb, #fbbc04 12%, var(--card)); }
+.import-table .tag { display: inline-block; margin-left: 4px; font-size: 10px; background: var(--selected); color: var(--accent); border-radius: 3px; padding: 0 4px; }
+.import .field select, .import .field input { font: inherit; font-size: 14px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); max-width: 420px; }
+.import-actions { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.progress { display: flex; gap: 10px; align-items: center; }
+.progress progress { width: 280px; }
+.ok-text { color: var(--ok-text, #2e7d32); }
+
 /* 変更履歴 */
 .history { list-style: none; margin: 0; padding: 0; }
 .history li { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: calc(14px * var(--fs)); }

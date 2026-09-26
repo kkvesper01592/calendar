@@ -12,10 +12,11 @@ interface Props {
   onTemplatesChange: (t: Template[]) => void
   calendars: CalendarListEntry[]
   canEditExisting: boolean // ログイン時に「予定の編集」が許可されているか
+  onOpenImport?: () => void // PC のときだけ(フォルダの読み取りが必要)
 }
 
 /** 見た目・週・テンプレートの設定 */
-export default function SettingsPanel({ prefs, onChange, templates, onTemplatesChange, calendars, canEditExisting }: Props) {
+export default function SettingsPanel({ prefs, onChange, templates, onTemplatesChange, calendars, canEditExisting, onOpenImport }: Props) {
   const existing = calendars.filter((c) => !isAppCalendar(c))
   const set = <K extends keyof Prefs>(k: K, v: Prefs[K]) => onChange({ ...prefs, [k]: v })
   const coloredDays = Object.keys(prefs.dayColors).sort()
@@ -172,6 +173,14 @@ export default function SettingsPanel({ prefs, onChange, templates, onTemplatesC
           </ul>
         )}
       </section>
+
+      {onOpenImport && (
+        <section className="card settings">
+          <h2>テキストから取り込み</h2>
+          <p className="hint small-text">過去の仕事メモ(1ファイル=1日のテキスト)を読み取り、取り込み専用のカレンダーに予定として登録します(PC のみ)。</p>
+          <button className="small" onClick={onOpenImport}>取り込み画面を開く</button>
+        </section>
+      )}
 
       <section className="card settings">
         <h2>日付の背景色</h2>

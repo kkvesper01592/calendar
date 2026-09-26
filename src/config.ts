@@ -16,3 +16,4 @@ export const SCOPE_EVENTS = 'https://www.googleapis.com/auth/calendar.events'
 // アプリが作ったカレンダーの説明欄に入れる目印(どの端末からでも判別できるように)
 export const MARK_TEST = '[WebCalendar:test]'
 export const MARK_MEMO = '[WebCalendar:memo]'
+export const MARK_IMPORT = '[WebCalendar:import]' // 過去のテキストを取り込む専用カレンダー

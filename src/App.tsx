@@ -19,6 +19,7 @@ import { eventRange, isAllDay, sameDay, shiftCursor, viewRange, viewTitle, weekD
 import { canEditExisting, isMemoCalendar, setEditableCalendars } from './google/calendarWriteApi'
 import { applyPrefs, loadPrefs, PrefsContext, savePrefs, type Prefs } from './settings/prefs'
 import SettingsPanel from './settings/SettingsPanel'
+import ImportPanel from './importing/ImportPanel'
 import { useMediaQuery } from './lib/useMediaQuery'
 import { useEditing } from './editing/useEditing'
 
@@ -63,7 +64,7 @@ export default function App() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  const [tab, setTab] = useState<'calendar' | 'backup' | 'settings'>('calendar')
+  const [tab, setTab] = useState<'calendar' | 'backup' | 'settings' | 'import'>('calendar')
   const [prefs, setPrefsState] = useState<Prefs>(loadPrefs)
   const [notice, setNotice] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
@@ -302,7 +303,20 @@ export default function App() {
   )
 
   let body
-  if (tab === 'settings') {
+  if (tab === 'import') {
+    body = (
+      <main className="single import-wide">
+        <button className="small ghost back" onClick={() => setTab('settings')}>‹ 設定に戻る</button>
+        <ImportPanel
+          token={token}
+          calendars={calendars}
+          onCalendarsChanged={() => setCalendars([])}
+          onDone={() => setReloadKey((k) => k + 1)}
+          onError={handleError}
+        />
+      </main>
+    )
+  } else if (tab === 'settings') {
     body = (
       <main className="single">
         <SettingsPanel
@@ -312,6 +326,7 @@ export default function App() {
           onTemplatesChange={editing.setTemplates}
           calendars={calendars}
           canEditExisting={canEditExisting(token)}
+          onOpenImport={canPickFolder() ? () => setTab('import') : undefined}
         />
       </main>
     )
