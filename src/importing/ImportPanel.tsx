@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
 import type { AccessToken } from '../google/auth'
 import { listAllEvents, type CalendarEvent, type CalendarListEntry } from '../google/calendarReadApi'
-import { createAppCalendar, insertImported, isImportCalendar } from '../google/calendarWriteApi'
+import { createAppCalendar, deleteEvent, insertImported, isImportCalendar } from '../google/calendarWriteApi'
 import { MARK_IMPORT } from '../config'
 import { addDays, localIso, ymd } from '../lib/dates'
-import { dateFromFileName, parseDay, type ImportItem } from './parseText'
+import { dateFromFileName, parseDay, SKIPPED_HEADINGS, SKIPPED_TITLES, type ImportItem } from './parseText'
 
 interface Props {
   token: AccessToken
@@ -56,6 +56,13 @@ function toBody(it: ImportItem, step: number): Partial<CalendarEvent> {
   const s = new Date(y, mo - 1, d, Math.floor(it.startMinutes / 60), it.startMinutes % 60)
   return { ...base, start: { dateTime: localIso(s), timeZone: zone }, end: { dateTime: localIso(new Date(s.getTime() + step * 60000)), timeZone: zone } }
 }
+
+type Cleanup =
+  | { kind: 'idle' }
+  | { kind: 'searching' }
+  | { kind: 'found'; targets: { cal: CalendarListEntry; ev: CalendarEvent }[] }
+  | { kind: 'deleting'; done: number; total: number; failed: number }
+  | { kind: 'finished'; deleted: number; failed: number }
 
 type Phase = { kind: 'idle' } | { kind: 'running'; done: number; total: number; skipped: number; failed: number } | { kind: 'finished'; created: number; skipped: number; failed: number; stopped: boolean }
 
@@ -159,7 +166,53 @@ export default function ImportPanel({ token, calendars, onCalendarsChanged, onDo
     }
   }
 
+  // 以前の取り込みで入った、今は取り込まない見出し(【今後の予定】など)の終日予定を探して消す
+  const [cleanup, setCleanup] = useState<Cleanup>({ kind: 'idle' })
+
+  async function findSkipped() {
+    setCleanup({ kind: 'searching' })
+    try {
+      const targets: { cal: CalendarListEntry; ev: CalendarEvent }[] = []
+      for (const cal of importCals) {
+        for (const ev of (await listAllEvents(token, cal.id)).items) {
+          if (ev.status === 'cancelled') continue
+          // 取り込みで作った・終日・タイトルが完全に一致するものだけ
+          if (ev.extendedProperties?.private?.importSource !== 'textmemo' || !ev.start?.date) continue
+          if (SKIPPED_TITLES.includes((ev.summary ?? '').trim())) targets.push({ cal, ev })
+        }
+      }
+      targets.sort((a, b) => (a.ev.start?.date ?? '').localeCompare(b.ev.start?.date ?? ''))
+      setCleanup({ kind: 'found', targets })
+    } catch (e) {
+      setCleanup({ kind: 'idle' })
+      onError(e)
+    }
+  }
+
+  async function deleteSkipped(targets: { cal: CalendarListEntry; ev: CalendarEvent }[]) {
+    if (!window.confirm(`取り込み用カレンダーから ${targets.length} 件の「${SKIPPED_HEADINGS.join('・')}」を削除します。よろしいですか?\n(変更履歴から元に戻せます)`)) return
+    let done = 0
+    let failed = 0
+    setCleanup({ kind: 'deleting', done, total: targets.length, failed })
+    for (const { cal, ev } of targets) {
+      try {
+        await deleteEvent(token, cal, ev.id)
+      } catch (e) {
+        failed++
+        if (/ログインの有効期限/.test(String(e))) {
+          onError(e)
+          break
+        }
+      }
+      done++
+      setCleanup({ kind: 'deleting', done, total: targets.length, failed })
+    }
+    setCleanup({ kind: 'finished', deleted: done - failed, failed })
+    onDone()
+  }
+
   const running = phase.kind === 'running'
+  const cleaning = cleanup.kind === 'searching' || cleanup.kind === 'deleting'
 
   return (
     <section className="card import">
@@ -168,6 +221,45 @@ export default function ImportPanel({ token, calendars, onCalendarsChanged, onDo
         1ファイル=1日のテキスト(ファイル名が日付)を読み取り、区切りごとに1件の予定として<strong>取り込み専用のカレンダー</strong>に登録します。
         既存のカレンダーには書き込みません。読み取りはこのパソコンの中だけで行い、予定は Google にだけ送られます。
       </p>
+
+      {importCals.length > 0 && (
+        <div className="import-step">
+          <h3>取り込み済みの「{SKIPPED_HEADINGS.join('・')}」を削除</h3>
+          <p className="small-text">
+            この見出しは多くの日に同じ内容が重複しているため、今は取り込まないようにしています。以前に取り込んだ分(終日の予定)を取り込み用カレンダーから探して削除します。
+          </p>
+          {(cleanup.kind === 'idle' || cleanup.kind === 'searching' || cleanup.kind === 'finished') && (
+            <button className="small" onClick={findSkipped} disabled={running || cleaning}>
+              {cleanup.kind === 'searching' ? '探しています…' : '探す'}
+            </button>
+          )}
+          {cleanup.kind === 'found' &&
+            (cleanup.targets.length === 0 ? (
+              <p className="ok-text">見つかりませんでした(削除するものはありません)。</p>
+            ) : (
+              <>
+                <p className="small-text">
+                  {cleanup.targets.length} 件見つかりました({cleanup.targets[0].ev.start?.date} 〜 {cleanup.targets[cleanup.targets.length - 1].ev.start?.date})。
+                </p>
+                <div className="import-actions">
+                  <button onClick={() => deleteSkipped(cleanup.targets)} disabled={running}>{cleanup.targets.length} 件を削除</button>
+                  <button className="small ghost" onClick={() => setCleanup({ kind: 'idle' })}>やめる</button>
+                </div>
+              </>
+            ))}
+          {cleanup.kind === 'deleting' && (
+            <div className="progress">
+              <progress max={cleanup.total || 1} value={cleanup.done} />
+              <span className="small-text">{cleanup.done} / {cleanup.total} 件(失敗 {cleanup.failed} 件)</span>
+            </div>
+          )}
+          {cleanup.kind === 'finished' && (
+            <p className={cleanup.failed ? 'warn' : 'ok-text'}>
+              削除 {cleanup.deleted} 件、失敗 {cleanup.failed} 件。{cleanup.failed ? 'もう一度「探す」から削除すると、残りを消せます。' : ''}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="import-step">
         <h3>1. フォルダを選ぶ</h3>

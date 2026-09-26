@@ -27,6 +27,11 @@ export interface ParseOptions {
 }
 
 const SEPARATOR = /^\s*[-ー―─━=＝]{5,}\s*$/
+
+/** 取り込まない見出し(多くの日に同じ内容が重複して書かれているため) */
+export const SKIPPED_HEADINGS = ['【今後の予定】']
+/** 以前の取り込みでこの見出しから作られた予定のタイトル(削除の対象を探すのに使う) */
+export const SKIPPED_TITLES = SKIPPED_HEADINGS.map((h) => `メモ: ${h}`)
 const DATE_IN_NAME = /(\d{4})年(\d{1,2})月(\d{1,2})日/
 
 /** ファイル名から日付(YYYY-MM-DD)。日付でないファイル(残高・フォーマット等)は null */
@@ -161,7 +166,10 @@ export function parseDay(file: string, text: string, opt: ParseOptions): ImportI
     const memo = lines.slice(headEnd + 1, memoEnd)
     const description = trimBlock([...head, ...memo])
     if (!description) continue
-    n++
+    n++ // 飛ばす見出しも数える(後ろの予定の識別子を以前の取り込みと揃えるため)
+    // 見出しの1行目(見出しが空ならメモの1行目)
+    const firstLine = head.map((l) => l.trim()).find(Boolean) ?? description.split('\n')[0].trim()
+    if (SKIPPED_HEADINGS.includes(firstLine)) continue
     const warnings: string[] = []
     const labeled = head.some((l) => /^\s*(住所|名前|電話)\s*[:：]/.test(l))
     let address = field(head, '住所')
@@ -169,7 +177,6 @@ export function parseDay(file: string, text: string, opt: ParseOptions): ImportI
 
     if (!labeled) {
       // 「住所:」などの無い1行見出し: 住所が書かれていれば訪問先、無ければその日のメモ(終日)
-      const firstLine = head.map((l) => l.trim()).find(Boolean) ?? description.split('\n')[0].trim()
       const place = splitPlace(firstLine)
       if (!place) {
         items.push({

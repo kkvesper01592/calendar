@@ -53,6 +53,7 @@ function googleLike(ev: Record<string, unknown>) {
 }
 // デモ中の通信の記録(確認用に window.__demoLog で見られる)
 const writeLog: string[] = []
+let evSeq = 0 // 同じミリ秒に作った予定でも ID が重ならないように
 ;(window as unknown as { __demoLog: string[] }).__demoLog = writeLog
 
 export function installDemo() {
@@ -111,7 +112,7 @@ export function installDemo() {
     if (!appCreated.has(calId) && !grantedScope.includes('calendar.events')) return json({ error: { message: 'Insufficient Permission (demo)' } }, 403)
     if (!url.searchParams.has('sendUpdates')) return json({ error: { message: 'sendUpdates missing (demo check)' } }, 400)
     if (method === 'POST') {
-      const ev = googleLike({ id: `ev${Date.now()}`, status: 'confirmed', ...JSON.parse(String(init!.body)) })
+      const ev = googleLike({ id: `ev${Date.now()}-${++evSeq}`, status: 'confirmed', ...JSON.parse(String(init!.body)) })
       list.push(ev)
       return json(ev)
     }
