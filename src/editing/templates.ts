@@ -35,12 +35,14 @@ export function saveTemplates(list: Template[]) {
   }
 }
 
+export const newTemplateId = () => `t${Date.now()}${Math.random().toString(36).slice(2, 6)}`
+
 /** 予定からひな形を作る(読み取るだけなので閲覧専用カレンダーの予定からでも作れる) */
 export function templateFromEvent(ev: CalendarEvent, calendarId?: string): Template {
   const { start, end } = eventRange(ev)
   const allDay = isAllDay(ev)
   return {
-    id: `t${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+    id: newTemplateId(),
     title: ev.summary ?? '',
     allDay,
     startTime: allDay ? '09:00' : hhmm(start),

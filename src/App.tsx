@@ -642,6 +642,7 @@ export default function App() {
           templates={editing.templates}
           onTemplatesChange={editing.setTemplates}
           calendars={calendars}
+          colors={colors}
           canEditExisting={canEditExisting(token)}
           onOpenImport={canPickFolder() ? () => setTab('import') : undefined}
           cloudStatus={cloudStatus}

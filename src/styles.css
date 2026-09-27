@@ -325,6 +325,9 @@ a.button.disabled { opacity: 0.5; pointer-events: none; }
 .tpl-list .tpl-title { flex: 1 1 160px; min-width: 0; }
 .tpl-list .num { width: 4.5em; }
 .tpl-list .tpl-allday { margin: 0; }
+.tpl-list .tpl-name { flex: 1 1 140px; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.tpl-list .tpl-actions { margin-left: auto; display: flex; gap: 4px; }
+.settings > .small + .tpl-list, .settings > .small + .muted { margin-top: 8px; }
 
 /* 設定画面 */
 .settings .set-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }

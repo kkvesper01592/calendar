@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { ACCENTS, FONT_LABELS, type Prefs } from './prefs'
-import { describeTemplate, type Template } from '../editing/templates'
+import { describeTemplate, newTemplateId, type Template } from '../editing/templates'
+import TemplateEditor from '../editing/TemplateEditor'
 import type { CalendarListEntry } from '../google/calendarReadApi'
-import { isAppCalendar, isEditableRole } from '../google/calendarWriteApi'
+import type { Colors } from '../calendar/useRangeEvents'
+import { isAppCalendar, isEditableRole, isMemoCalendar } from '../google/calendarWriteApi'
 import { buildInfo, versionDetail } from '../lib/version'
 
 const WD = ['日', '月', '火', '水', '木', '金', '土']
@@ -12,6 +15,7 @@ interface Props {
   templates: Template[]
   onTemplatesChange: (t: Template[]) => void
   calendars: CalendarListEntry[]
+  colors: Colors | null
   canEditExisting: boolean // ログイン時に「予定の編集」が許可されているか
   onOpenImport?: () => void // PC のときだけ(フォルダの読み取りが必要)
   cloudStatus: string // 設定の Google への保存の状態
@@ -25,12 +29,23 @@ interface Props {
 }
 
 /** 見た目・週・テンプレートの設定 */
-export default function SettingsPanel({ prefs, onChange, templates, onTemplatesChange, calendars, canEditExisting, onOpenImport, offline, cloudStatus }: Props) {
+export default function SettingsPanel({ prefs, onChange, templates, onTemplatesChange, calendars, colors, canEditExisting, onOpenImport, offline, cloudStatus }: Props) {
   const existing = calendars.filter((c) => !isAppCalendar(c))
   const appMade = calendars.filter(isAppCalendar)
   const set = <K extends keyof Prefs>(k: K, v: Prefs[K]) => onChange({ ...prefs, [k]: v })
   const coloredDays = Object.keys(prefs.dayColors).sort()
-  const updateTpl = (id: string, patch: Partial<Template>) => onTemplatesChange(templates.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+  // テンプレートの作成・編集画面('new' = 新規作成)
+  const [tplEditing, setTplEditing] = useState<Template | 'new' | null>(null)
+  // テンプレートの保存先に選べるカレンダー(日付メモ用・閲覧のみの共有カレンダーは除く)
+  const tplCalendars = calendars.filter((c) => !isMemoCalendar(c) && (isAppCalendar(c) || isEditableRole(c)))
+  const calName = (id?: string) => {
+    const c = calendars.find((x) => x.id === id)
+    return c ? c.summaryOverride || c.summary : ''
+  }
+  function saveTpl(t: Template) {
+    onTemplatesChange(templates.some((x) => x.id === t.id) ? templates.map((x) => (x.id === t.id ? t : x)) : [...templates, t])
+    setTplEditing(null)
+  }
 
   return (
     <>
@@ -210,38 +225,45 @@ export default function SettingsPanel({ prefs, onChange, templates, onTemplatesC
       <section className="card settings">
         <h2>テンプレート</h2>
         <p className="hint small-text">
-          予定の詳細の「テンプレートに保存」で作れます。カレンダーの日付を右クリック(スマホは長押し)すると、テンプレートからすぐ登録できます。
+          「＋ 新しいテンプレート」で作るほか、予定の詳細の「テンプレートに保存」でも作れます。カレンダーの日付を右クリック(スマホは長押し)すると、テンプレートからすぐ登録できます。予定の追加画面の「テンプレート」でも選べます。
         </p>
+        <button className="small" onClick={() => setTplEditing('new')}>＋ 新しいテンプレート</button>
         {templates.length === 0 ? (
           <p className="muted">まだありません</p>
         ) : (
           <ul className="tpl-list">
             {templates.map((t) => (
               <li key={t.id}>
-                <input className="tpl-title" value={t.title} onChange={(e) => updateTpl(t.id, { title: e.target.value })} aria-label="テンプレートの名前" />
-                <label className="check tpl-allday">
-                  <input type="checkbox" checked={t.allDay} onChange={(e) => updateTpl(t.id, { allDay: e.target.checked, minutes: e.target.checked ? 1440 : 60 })} /> 終日
-                </label>
-                {!t.allDay && (
-                  <>
-                    <input type="time" step={300} value={t.startTime} onChange={(e) => updateTpl(t.id, { startTime: e.target.value })} aria-label="開始時刻" />
-                    <input
-                      type="number"
-                      min={5}
-                      step={5}
-                      className="num"
-                      value={t.minutes}
-                      onChange={(e) => updateTpl(t.id, { minutes: Math.max(5, Number(e.target.value) || 60) })}
-                      aria-label="長さ(分)"
-                    />
-                    分
-                  </>
-                )}
-                <span className="muted small-text">{describeTemplate(t)}</span>
-                <button className="small danger" onClick={() => onTemplatesChange(templates.filter((x) => x.id !== t.id))}>削除</button>
+                <span className="tpl-name">{t.title || '(タイトルなし)'}</span>
+                <span className="muted small-text">
+                  {describeTemplate(t)}
+                  {t.calendarId && calName(t.calendarId) ? `・${calName(t.calendarId)}` : ''}
+                  {t.location ? `・📍${t.location}` : ''}
+                </span>
+                <span className="tpl-actions">
+                  <button className="small ghost" onClick={() => setTplEditing(t)}>編集</button>
+                  <button className="small ghost" onClick={() => setTplEditing({ ...t, id: newTemplateId(), title: `${t.title}(コピー)` })}>複製</button>
+                  <button
+                    className="small danger"
+                    onClick={() => window.confirm(`テンプレート「${t.title || '(タイトルなし)'}」を削除しますか?`) && onTemplatesChange(templates.filter((x) => x.id !== t.id))}
+                  >
+                    削除
+                  </button>
+                </span>
               </li>
             ))}
           </ul>
+        )}
+        {tplEditing && (
+          <TemplateEditor
+            // 複製は新しい ID を持つが、まだ一覧に無いので「新規」として扱う
+            template={tplEditing === 'new' ? undefined : tplEditing}
+            isNew={tplEditing === 'new' || !templates.some((x) => x.id === tplEditing.id)}
+            calendars={tplCalendars}
+            colors={colors}
+            onSave={saveTpl}
+            onCancel={() => setTplEditing(null)}
+          />
         )}
       </section>
 
