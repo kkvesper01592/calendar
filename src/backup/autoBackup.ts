@@ -43,6 +43,34 @@ export function lastAutoBackup(): LastBackup | null {
 
 export const isDueToday = () => lastAutoBackup()?.day !== ymd(new Date())
 
+// 開いている間の定期バックアップ(保存先の「最新」フォルダに上書き)
+export const LATEST_FOLDER = '最新'
+const LATEST_KEY = 'webcalendar.lastLatestBackup'
+export interface LatestBackup {
+  at: string
+  events: number
+}
+export function lastLatestBackup(): LatestBackup | null {
+  try {
+    return JSON.parse(localStorage.getItem(LATEST_KEY) ?? 'null')
+  } catch {
+    return null
+  }
+}
+
+/** 全カレンダーを読み取り、保存先の「最新」フォルダに上書き保存する(毎日の backup_日時 とは別) */
+export async function runLatestBackupTo(dir: FileSystemDirectoryHandle, token: AccessToken): Promise<LatestBackup> {
+  const b = await collectFullBackup(token, () => {})
+  await saveBackup(dir, b, { folderName: LATEST_FOLDER })
+  const rec: LatestBackup = { at: new Date().toISOString(), events: b.calendars.reduce((n, c) => n + c.events.filter((e) => e.status !== 'cancelled').length, 0) }
+  try {
+    localStorage.setItem(LATEST_KEY, JSON.stringify(rec))
+  } catch {
+    /* 記録できなくてもバックアップ自体は成功している */
+  }
+  return rec
+}
+
 /** 全カレンダーを読み取り、保存先フォルダに backup_日時 として書き出す */
 export async function runBackupTo(
   dir: FileSystemDirectoryHandle,

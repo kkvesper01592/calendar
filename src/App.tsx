@@ -13,7 +13,7 @@ import { searchEvents } from './calendar/searchIndex'
 import { HoverCard, useHoverPreview } from './calendar/HoverPreview'
 import BackupPanel from './backup/BackupPanel'
 import ChangeHistory from './backup/ChangeHistory'
-import { getAutoDir, isDueToday, permission, requestPermission, runBackupTo } from './backup/autoBackup'
+import { getAutoDir, isDueToday, lastLatestBackup, permission, requestPermission, runBackupTo, runLatestBackupTo } from './backup/autoBackup'
 import { canPickFolder } from './backup/saveToFolder'
 import { eventRange, isAllDay, sameDay, shiftCursor, viewRange, viewTitle, weekDaysOf, ymd, type ViewKind } from './lib/dates'
 import { canEditExisting, canWrite, isMemoCalendar, isSettingsCalendar, setEditableCalendars } from './google/calendarWriteApi'
@@ -465,6 +465,36 @@ export default function App() {
     }
   }
 
+  // ---- 開いている間の定期バックアップ(PC。保存先の「最新」フォルダに上書き。裏で行い、操作は止めない) ----
+  const [periodic, setPeriodic] = useState<{ status: string; last: ReturnType<typeof lastLatestBackup> }>(() => ({ status: '', last: lastLatestBackup() }))
+  const periodicRunning = useRef(false)
+  async function runPeriodic() {
+    if (periodicRunning.current) return
+    const t = tokenRef.current
+    if (offlineRef.current || !navigator.onLine) return setPeriodic((p) => ({ ...p, status: 'オフラインのため、つながるまで待っています' }))
+    if (!t || !tokenValid()) return setPeriodic((p) => ({ ...p, status: 'ログインの有効期限が切れているため待っています(画面を操作するとログインし直します)' }))
+    const dir = await getAutoDir()
+    if (!dir) return setPeriodic((p) => ({ ...p, status: '保存先フォルダが未設定です' }))
+    // 許可の確認はボタン操作の中でしか出せないので、許可が無いときは待つ(毎日の自動バックアップのお知らせから許可できる)
+    if ((await permission(dir)) !== 'granted') return setPeriodic((p) => ({ ...p, status: '保存先フォルダへの書き込みの許可を待っています' }))
+    periodicRunning.current = true
+    setPeriodic((p) => ({ ...p, status: '保存中…' }))
+    try {
+      const last = await runLatestBackupTo(dir, t)
+      setPeriodic({ status: '', last })
+    } catch (e) {
+      setPeriodic((p) => ({ ...p, status: `失敗しました: ${e instanceof Error ? e.message : String(e)}(次の回にもう一度行います)` }))
+    } finally {
+      periodicRunning.current = false
+    }
+  }
+  const loggedIn = !!token
+  useEffect(() => {
+    if (!loggedIn || !canPickFolder() || !prefs.periodicBackupMin) return
+    const timer = window.setInterval(() => void runPeriodic(), prefs.periodicBackupMin * 60_000)
+    return () => window.clearInterval(timer)
+  }, [loggedIn, prefs.periodicBackupMin]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function allowAndRunAuto() {
     const dir = await getAutoDir()
     if (dir && (await requestPermission(dir))) await runAuto(dir)
@@ -685,7 +715,18 @@ export default function App() {
     body = (
       <main className="single">
         {liveToken ? (
-          <BackupPanel token={liveToken} onError={handleError} onDone={() => setAuto({ kind: 'idle' })} />
+          <BackupPanel
+            token={liveToken}
+            onError={handleError}
+            onDone={() => setAuto({ kind: 'idle' })}
+            periodic={{
+              minutes: prefs.periodicBackupMin,
+              onMinutes: (m) => setPrefs({ ...prefs, periodicBackupMin: m }),
+              last: periodic.last,
+              status: periodic.status,
+              onRunNow: () => void runPeriodic(),
+            }}
+          />
         ) : (
           <p className="card warn">オフライン中はバックアップできません。ネットにつながってから「更新」を押してください。</p>
         )}

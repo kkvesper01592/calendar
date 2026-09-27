@@ -40,9 +40,13 @@ export interface SavedResult {
   files: string[]
 }
 
-/** 選んだフォルダの中に backup_日時 フォルダを作り、JSON・カレンダー別 .ics・閲覧用 HTML を保存する */
-export async function saveBackup(root: FileSystemDirectoryHandle, b: FullBackup): Promise<SavedResult> {
-  const folderName = `backup_${stamp(new Date(b.createdAt))}`
+/**
+ * 選んだフォルダの中に backup_日時 フォルダを作り、JSON・カレンダー別 .ics・閲覧用 HTML を保存する。
+ * folderName を指定すると、そのフォルダに上書き保存する(定期バックアップの「最新」フォルダ)。
+ * ファイルは1つずつ一時ファイルに書いてから置き換わるので、途中で止まっても前回のファイルは壊れない
+ */
+export async function saveBackup(root: FileSystemDirectoryHandle, b: FullBackup, opts: { folderName?: string } = {}): Promise<SavedResult> {
+  const folderName = opts.folderName ?? `backup_${stamp(new Date(b.createdAt))}`
   const dir = await root.getDirectoryHandle(folderName, { create: true })
   const files: string[] = []
 
@@ -61,6 +65,16 @@ export async function saveBackup(root: FileSystemDirectoryHandle, b: FullBackup)
     used.add(name)
     await writeFile(icsDir, `${name}.ics`, toIcs(c))
     files.push(`ics/${name}.ics`)
+  }
+  // 上書き保存のとき: 削除・名前変更されたカレンダーの古い .ics を片付ける(今回取得できなかったカレンダーの分は残す)
+  if (opts.folderName) {
+    const keep = new Set([...used].map((n) => `${n}.ics`))
+    const failed = b.calendars.some((c) => c.error)
+    if (!failed) {
+      for await (const name of (icsDir as unknown as { keys(): AsyncIterable<string> }).keys()) {
+        if (name.endsWith('.ics') && !keep.has(name)) await icsDir.removeEntry(name).catch(() => {})
+      }
+    }
   }
   return { folderName, files }
 }

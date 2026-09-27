@@ -12,6 +12,7 @@ export interface Prefs {
   dayColors: Record<string, string> // 日付マスの背景色 YYYY-MM-DD -> 色
   editableCalendars: string[] // 編集を許可した既存カレンダー(最初は無し)
   offlineCache: boolean // この端末にオフライン表示用の予定を保存する(最初はオフ)
+  periodicBackupMin: number // 開いている間の定期バックアップの間隔(分)。0 = しない
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -25,6 +26,7 @@ export const DEFAULT_PREFS: Prefs = {
   dayColors: {},
   editableCalendars: [],
   offlineCache: false,
+  periodicBackupMin: 30,
 }
 
 export const FONT_SCALES = [0.85, 0.93, 1, 1.12, 1.25]

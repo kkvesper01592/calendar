@@ -2,15 +2,23 @@ import { useEffect, useState } from 'react'
 import type { AccessToken } from '../google/auth'
 import { canPickFolder, pickFolder } from './saveToFolder'
 import { getRememberedFolder } from '../settings/cloudSettings'
-import { getAutoDir, lastAutoBackup, permission, requestPermission, runBackupTo, setAutoDir } from './autoBackup'
+import { getAutoDir, lastAutoBackup, LATEST_FOLDER, permission, requestPermission, runBackupTo, setAutoDir, type LatestBackup } from './autoBackup'
 
 interface Props {
   token: AccessToken
   onError: (e: unknown) => void
   onDone: () => void
+  // 開いている間の定期バックアップ(「最新」フォルダに上書き)
+  periodic: {
+    minutes: number // 0 = しない
+    onMinutes: (m: number) => void
+    last: LatestBackup | null
+    status: string
+    onRunNow: () => void
+  }
 }
 
-export default function BackupPanel({ token, onError, onDone }: Props) {
+export default function BackupPanel({ token, onError, onDone, periodic }: Props) {
   const [dir, setDir] = useState<FileSystemDirectoryHandle | undefined>()
   const [busy, setBusy] = useState(false)
   const [log, setLog] = useState<string[]>([])
@@ -93,6 +101,44 @@ export default function BackupPanel({ token, onError, onDone }: Props) {
       <button onClick={runNow} disabled={!dir || busy}>
         {busy ? 'バックアップ中…' : '今すぐバックアップ'}
       </button>
+
+      <h3 className="small-heading">開いている間の定期バックアップ</h3>
+      <p className="hint small-text">
+        アプリを開いている間、決まった間隔で全カレンダーの予定を保存先の「{LATEST_FOLDER}」フォルダに上書き保存します(裏で行うので操作は止まりません)。
+        アプリを閉じる瞬間には保存できない(ブラウザの決まり)ため、閉じる時点でも直前の状態が残るように、この方法で保存しています。
+        スマホや Google カレンダーで直接変えた内容も、次の回に保存されます。毎日の backup_日時 フォルダは今までどおり残ります。
+      </p>
+      <label className="field">
+        <span>間隔</span>
+        <select value={periodic.minutes} onChange={(e) => periodic.onMinutes(Number(e.target.value))}>
+          <option value={10}>10分ごと</option>
+          <option value={30}>30分ごと</option>
+          <option value={60}>1時間ごと</option>
+          <option value={0}>しない</option>
+        </select>
+      </label>
+      <p className="small-text">
+        前回: {periodic.last ? `${new Date(periodic.last.at).toLocaleString('ja-JP')}(予定 ${periodic.last.events} 件)` : 'まだありません'}
+        {periodic.minutes > 0 && dir && (
+          <>
+            {' '}
+            <button
+              className="small ghost"
+              onClick={async () => {
+                // ボタン操作の中なので、許可が無ければここで許可を求められる
+                if ((await permission(dir)) !== 'granted' && !(await requestPermission(dir))) {
+                  onError(new Error('保存先フォルダへの書き込みが許可されませんでした'))
+                  return
+                }
+                periodic.onRunNow()
+              }}
+            >
+              今すぐ「{LATEST_FOLDER}」に保存
+            </button>
+          </>
+        )}
+      </p>
+      {periodic.status && <p className="small-text muted">{periodic.status}</p>}
       {log.length > 0 && <pre className="log">{log.join('\n')}</pre>}
     </section>
   )
