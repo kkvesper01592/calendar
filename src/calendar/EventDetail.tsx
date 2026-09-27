@@ -2,9 +2,11 @@ import { useEffect } from 'react'
 import { describeWhen, eventRange, startOfDay } from '../lib/dates'
 import type { DisplayEvent } from './useRangeEvents'
 import { eventMapUrl, mapSearchUrl } from '../lib/maps'
+import { plainText } from '../lib/highlight'
+import Highlight from './Highlight'
 
-// http(s) のリンクだけをリンクにする(それ以外は文字として表示)
-function Linkified({ text }: { text: string }) {
+// http(s) のリンクだけをリンクにする(それ以外は文字として表示)。words があれば検索語に色を付ける
+function Linkified({ text, words }: { text: string; words?: string[] }) {
   const parts = text.split(/(https?:\/\/[^\s<>"']+)/g)
   return (
     <>
@@ -12,26 +14,24 @@ function Linkified({ text }: { text: string }) {
         /^https?:\/\//.test(p) ? (
           <a key={i} href={p} target="_blank" rel="noopener noreferrer">{p}</a>
         ) : (
-          <span key={i}>{p}</span>
+          <span key={i}>
+            <Highlight text={p} words={words} />
+          </span>
         ),
       )}
     </>
   )
 }
 
-// Google の説明欄は HTML を含むことがあるので、タグを外して文字だけ表示する(スクリプトは実行されない)
-function plain(html: string): string {
-  const doc = new DOMParser().parseFromString(html.replace(/<br\s*\/?>/gi, '\n'), 'text/html')
-  return doc.body.textContent ?? ''
-}
-
-/** 予定の中身(ポップアップと検索のプレビューで共通) */
-export function EventBody({ item }: { item: DisplayEvent }) {
+/** 予定の中身(ポップアップと検索のプレビューで共通)。words を渡すと検索語に色を付ける */
+export function EventBody({ item, words }: { item: DisplayEvent; words?: string[] }) {
   const { ev, calendar, color } = item
   const mapUrl = eventMapUrl(ev)
   return (
     <>
-      <h2 className="modal-title">{ev.summary || '(タイトルなし)'}</h2>
+      <h2 className="modal-title">
+        <Highlight text={ev.summary || '(タイトルなし)'} words={words} />
+      </h2>
       <p className="modal-when">{describeWhen(ev)}</p>
       {(ev.recurringEventId || ev.recurrence) && <p className="badge">繰り返しの予定</p>}
       {(ev.location || mapUrl) && (
@@ -40,7 +40,7 @@ export function EventBody({ item }: { item: DisplayEvent }) {
           <span>
             {/* 地図のリンクが登録されていればその場所へ、無ければ住所で地図を検索 */}
             <a href={mapUrl ?? mapSearchUrl(ev.location!)} target="_blank" rel="noopener noreferrer">
-              📍 {ev.location || '地図を開く'}
+              📍 {ev.location ? <Highlight text={ev.location} words={words} /> : '地図を開く'}
             </a>
             {mapUrl && <span className="muted small-text"> (登録した地図)</span>}
           </span>
@@ -50,7 +50,8 @@ export function EventBody({ item }: { item: DisplayEvent }) {
         <div className="modal-row">
           <span className="label">メモ</span>
           <div className="modal-desc">
-            <Linkified text={plain(ev.description)} />
+            {/* Google の説明欄は HTML を含むことがあるので、タグを外して文字だけ表示する(スクリプトは実行されない) */}
+            <Linkified text={plainText(ev.description)} words={words} />
           </div>
         </div>
       )}
@@ -71,10 +72,12 @@ interface Props {
   onEdit?: () => void // 書き込めるカレンダーの予定のときだけ
   onDelete?: () => void
   onSaveTemplate?: () => void
+  words?: string[] // 検索結果から開いたときの検索語(色を付ける)
+  readOnlyNote?: string // 編集できない理由(オフライン中など)
 }
 
 /** 1件の予定だけを表示するポップアップ */
-export default function EventDetail({ item, onClose, onShowDay, onEdit, onDelete, onSaveTemplate }: Props) {
+export default function EventDetail({ item, onClose, onShowDay, onEdit, onDelete, onSaveTemplate, words, readOnlyNote }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
@@ -86,7 +89,7 @@ export default function EventDetail({ item, onClose, onShowDay, onEdit, onDelete
       <div className="modal" role="dialog" aria-modal="true" aria-label="予定の詳細" onClick={(e) => e.stopPropagation()}>
         <div className="modal-bar" style={{ background: item.color }} />
         <button className="modal-close" onClick={onClose} aria-label="閉じる">×</button>
-        <EventBody item={item} />
+        <EventBody item={item} words={words} />
         <div className="modal-actions spread">
           <span>
             {onShowDay && (
@@ -106,7 +109,7 @@ export default function EventDetail({ item, onClose, onShowDay, onEdit, onDelete
               <button className="small" onClick={onEdit}>編集</button>
             </span>
           ) : (
-            <span className="muted small-text">閲覧専用のカレンダー</span>
+            <span className="muted small-text">{readOnlyNote ?? '閲覧専用のカレンダー'}</span>
           )}
         </div>
       </div>

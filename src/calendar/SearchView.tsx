@@ -1,14 +1,30 @@
 import { useEffect, useState } from 'react'
 import type { AccessToken } from '../google/auth'
-import type { CalendarListEntry } from '../google/calendarReadApi'
+import type { CalendarEvent, CalendarListEntry } from '../google/calendarReadApi'
 import { describeWhen, eventRange } from '../lib/dates'
 import type { Colors, DisplayEvent } from './useRangeEvents'
 import { searchEvents } from './searchIndex'
 import { EventBody } from './EventDetail'
 import { useMediaQuery } from '../lib/useMediaQuery'
+import { lineHits, plainText, searchWords } from '../lib/highlight'
+import Highlight from './Highlight'
+import type { OfflineSnapshot } from '../offline/offlineStore'
+
+/** 予定のうち、検索語を含む行(場所とメモの各行)をすべて取り出す */
+function hitLines(ev: CalendarEvent, words: string[]): { label?: string; text: string }[] {
+  const out: { label?: string; text: string }[] = []
+  if (ev.location && lineHits(ev.location, words)) out.push({ label: '場所', text: ev.location })
+  if (ev.description) {
+    for (const line of plainText(ev.description).split('\n')) {
+      if (line.trim() && lineHits(line, words)) out.push({ text: line.trim() })
+    }
+  }
+  return out
+}
 
 interface Props {
-  token: AccessToken
+  token: AccessToken | null
+  offline: OfflineSnapshot | null // オフライン中は保存した予定から探す
   calendars: CalendarListEntry[]
   colors: Colors | null
   query: string
@@ -19,7 +35,7 @@ interface Props {
 }
 
 /** 検索結果: 今日以降の予定と過去の予定(新しい順)に分けて表示。スペース区切りは「すべて含む」 */
-export default function SearchView({ token, calendars, colors, query, reloadKey, onOpen, onClose, onError }: Props) {
+export default function SearchView({ token, offline, calendars, colors, query, reloadKey, onOpen, onClose, onError }: Props) {
   const [results, setResults] = useState<DisplayEvent[] | null>(null)
   const [progress, setProgress] = useState('')
   const [preview, setPreview] = useState<DisplayEvent | null>(null)
@@ -30,14 +46,15 @@ export default function SearchView({ token, calendars, colors, query, reloadKey,
     let cancelled = false
     setResults(null)
     setPreview(null)
-    searchEvents(token, calendars, colors, query, reloadKey, setProgress)
+    searchEvents(token, calendars, colors, query, reloadKey, setProgress, offline)
       .then((found) => !cancelled && setResults(found))
       .catch((e) => !cancelled && onError(e))
     return () => {
       cancelled = true
     }
-  }, [token, calendars, colors, query, reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token, offline, calendars, colors, query, reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const words = searchWords(query)
   const now = Date.now()
   const upcoming = results?.filter((r) => eventRange(r.ev).end.getTime() >= now) ?? []
   const past = (results?.filter((r) => eventRange(r.ev).end.getTime() < now) ?? []).reverse()
@@ -47,14 +64,27 @@ export default function SearchView({ token, calendars, colors, query, reloadKey,
       {items.map((item) => (
         <li key={item.key}>
           <button
-            className={`row ${preview?.key === item.key ? 'hovered' : ''}`}
+            className={`row search-row ${preview?.key === item.key ? 'hovered' : ''}`}
             onClick={() => onOpen(item)}
             onMouseEnter={() => canPreview && setPreview(item)}
             onFocus={() => canPreview && setPreview(item)}
           >
             <span className="bar" style={{ background: item.color }} />
-            <span className="row-when">{describeWhen(item.ev)}</span>
-            <span className="row-title">{item.ev.summary || '(タイトルなし)'}</span>
+            <span className="search-main">
+              <span className="search-head">
+                <span className="row-when">{describeWhen(item.ev)}</span>
+                <span className="row-title">
+                  <Highlight text={item.ev.summary || '(タイトルなし)'} words={words} />
+                </span>
+              </span>
+              {/* タイトル以外で一致した行(場所・メモ)をすべて表示 */}
+              {hitLines(item.ev, words).map((l, i) => (
+                <span key={i} className="search-line">
+                  {l.label && <span className="line-label">{l.label}</span>}
+                  <Highlight text={l.text} words={words} />
+                </span>
+              ))}
+            </span>
           </button>
         </li>
       ))}
@@ -73,7 +103,7 @@ export default function SearchView({ token, calendars, colors, query, reloadKey,
         <p className="muted">見つかりませんでした(表示中のカレンダーの、タイトル・メモ・場所を検索します)</p>
       ) : (
         <>
-          <p className="muted small-text">{results.length} 件(タイトル・メモ・場所から検索)</p>
+          <p className="muted small-text">{results.length} 件(タイトル・メモ・場所から検索。一致した言葉に色を付け、タイトルの下に一致した行を表示)</p>
           {upcoming.length > 0 && (
             <>
               <h3>今日以降({upcoming.length})</h3>
@@ -99,7 +129,7 @@ export default function SearchView({ token, calendars, colors, query, reloadKey,
         {preview ? (
           <>
             <div className="modal-bar" style={{ background: preview.color }} />
-            <EventBody item={preview} />
+            <EventBody item={preview} words={words} />
             <p className="muted small-text">クリックで詳細を開きます</p>
           </>
         ) : (

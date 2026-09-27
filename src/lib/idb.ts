@@ -37,6 +37,10 @@ export function idbSet(key: string, value: unknown): Promise<void> {
   return tx<void>(KV, 'readwrite', (s) => s.put(value, key)).then(() => undefined)
 }
 
+export function idbDelete(key: string): Promise<void> {
+  return tx<void>(KV, 'readwrite', (s) => s.delete(key)).then(() => undefined)
+}
+
 export function journalAdd(entry: unknown): Promise<void> {
   return tx<void>(JOURNAL, 'readwrite', (s) => s.add(entry)).then(() => undefined)
 }

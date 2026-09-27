@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SCOPE_APP_CREATED, SCOPE_CALENDAR_READONLY, SCOPE_EVENTS } from './config'
 import { requestAccessToken, revokeToken, type AccessToken } from './google/auth'
 import { AuthExpiredError, getColors, listCalendars, type CalendarListEntry } from './google/calendarReadApi'
@@ -22,6 +22,9 @@ import SettingsPanel from './settings/SettingsPanel'
 import ImportPanel from './importing/ImportPanel'
 import { useMediaQuery } from './lib/useMediaQuery'
 import { useEditing } from './editing/useEditing'
+import { useNewerVersion, versionDetail, versionLabel } from './lib/version'
+import { searchWords } from './lib/highlight'
+import { clearSnapshot, isNetworkError, loadSnapshot, saveSnapshot, snapshotCount, type OfflineSnapshot } from './offline/offlineStore'
 
 // 表示設定(端末ごと)。保存できない環境でも既定値で動く
 function loadPref<T>(key: string, fallback: T): T {
@@ -70,6 +73,13 @@ export default function App() {
   const [reloadKey, setReloadKey] = useState(0)
   const [error, setError] = useState('')
   const [auto, setAuto] = useState<AutoState>({ kind: 'idle' })
+  const newer = useNewerVersion()
+  // オフライン表示中は、この端末に保存した予定(スナップショット)を使う。null ならふだんどおり Google から読む
+  const [offlineSnap, setOfflineSnap] = useState<OfflineSnapshot | null>(null)
+  const [savedInfo, setSavedInfo] = useState<{ savedAt: string; count: number } | null>(null) // 保存済みの内容
+  const [offlineSync, setOfflineSync] = useState('') // 保存中の進み具合
+  const [online, setOnline] = useState(() => navigator.onLine)
+  const calendarsRef = useRef<CalendarListEntry[]>([])
 
   // 見た目の設定を画面に反映
   useEffect(() => applyPrefs(prefs), [prefs])
@@ -97,13 +107,41 @@ export default function App() {
     setOpenEvent(item)
   }, [hover.hide]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // エラー処理から最新の状態を参照するため
+  const prefsRef = useRef(prefs)
+  prefsRef.current = prefs
+  const offlineRef = useRef(offlineSnap)
+  offlineRef.current = offlineSnap
+  const tokenRef = useRef(token)
+  tokenRef.current = token
+  calendarsRef.current = calendars
+  const tokenValid = () => !!tokenRef.current && tokenRef.current.expiresAt - 60_000 > Date.now()
+
+  /** 通信できなくなったとき: 保存した予定があればオフライン表示に切り替える */
+  const goOffline = useCallback(async () => {
+    if (offlineRef.current) return
+    const snap = prefsRef.current.offlineCache ? await loadSnapshot() : undefined
+    if (!snap) {
+      setError('ネットにつながっていません。つながらないときにも予定を見られるようにするには、「設定」→「オフライン表示」をオンにしてください')
+      return
+    }
+    setOfflineSnap(snap)
+    setCalendars((cur) => (cur.length ? cur : snap.calendars))
+    setColors((cur) => cur ?? snap.colors)
+    setError('')
+  }, [])
+
   const handleError = useCallback((e: unknown) => {
     if (e instanceof AuthExpiredError) {
       setExpired(true)
       return
     }
+    if (isNetworkError(e)) {
+      void goOffline()
+      return
+    }
     setError(e instanceof Error ? e.message : String(e))
-  }, [])
+  }, [goOffline])
 
   async function login() {
     setError('')
@@ -113,15 +151,24 @@ export default function App() {
       const t = await requestAccessToken(SCOPE_CALENDAR_READONLY, [SCOPE_APP_CREATED, SCOPE_EVENTS])
       setToken(t)
       setExpired(false)
+      // オフライン表示から戻るとき: 保存した一覧ではなく最新の一覧に差し替える
+      if (offlineRef.current) {
+        setOfflineSnap(null)
+        const [list, cols] = await Promise.all([listCalendars(t), getColors(t)])
+        setCalendars(list.items)
+        setColors(cols as Colors)
+        setReloadKey((k) => k + 1)
+      }
     } catch (e) {
       handleError(e)
     }
   }
 
   async function logout() {
-    if (token) await revokeToken(token)
+    if (token && online) await revokeToken(token).catch(() => {})
     setToken(null)
     setCalendars([])
+    setOfflineSnap(null)
   }
 
   // ログイン後: カレンダー一覧と色
@@ -147,19 +194,113 @@ export default function App() {
 
   // 「更新」: Google で追加・名前変更したカレンダーも反映するため、一覧から読み直してから予定を読み込む
   async function refresh() {
+    if (offlineSnap) {
+      // オフライン表示中: つながっていれば最新に戻す(ログインが切れていればログインから)
+      if (!navigator.onLine) return setNotice('まだネットにつながっていません')
+      if (!tokenValid()) return login()
+      setOfflineSnap(null)
+    }
     if (token) {
       try {
         replaceCalendars((await listCalendars(token)).items)
       } catch (e) {
         handleError(e)
+        return
       }
     }
     setReloadKey((k) => k + 1)
+    void syncOffline(true)
+  }
+
+  // ---- オフライン表示用の保存(設定でオンにした端末だけ) ----
+  const syncing = useRef(false)
+  async function syncOffline(force: boolean) {
+    const t = tokenRef.current
+    if (!t || !tokenValid() || !prefsRef.current.offlineCache || offlineRef.current || syncing.current || !navigator.onLine) return
+    // 前回の保存から30分たっていなければ、押したとき(force)以外は保存しない
+    if (!force && savedInfo && Date.now() - new Date(savedInfo.savedAt).getTime() < 30 * 60_000) return
+    syncing.current = true
+    try {
+      const snap = await saveSnapshot(t, setOfflineSync)
+      setSavedInfo({ savedAt: snap.savedAt, count: snapshotCount(snap) })
+    } catch (e) {
+      if (!isNetworkError(e)) setOfflineSync(`オフライン用の保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`)
+      return
+    } finally {
+      syncing.current = false
+    }
+    setOfflineSync('')
+  }
+
+  // 保存済みの内容を読む。ネットにつながっていない状態で開いたら、そのままオフライン表示にする
+  useEffect(() => {
+    if (!prefs.offlineCache) return setSavedInfo(null)
+    loadSnapshot().then((snap) => {
+      if (!snap) return
+      setSavedInfo({ savedAt: snap.savedAt, count: snapshotCount(snap) })
+      if (!navigator.onLine && !tokenRef.current) void goOffline()
+    })
+  }, [prefs.offlineCache]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ログイン中・予定を変更したあとに保存(30分に1回まで)
+  useEffect(() => {
+    if (token && calendars.length) void syncOffline(false)
+  }, [token, calendars.length, reloadKey, prefs.offlineCache]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // つながった/切れたの検知。つながったら、ログインが有効なら自動で最新に戻す
+  useEffect(() => {
+    const on = () => {
+      setOnline(true)
+      if (offlineRef.current && tokenValid()) {
+        setOfflineSnap(null)
+        setReloadKey((k) => k + 1)
+        setNotice('ネットにつながったので、最新の予定に更新しました')
+      }
+    }
+    const off = () => {
+      setOnline(false)
+      if (tokenRef.current || calendarsRef.current.length) void goOffline()
+    }
+    window.addEventListener('online', on)
+    window.addEventListener('offline', off)
+    return () => {
+      window.removeEventListener('online', on)
+      window.removeEventListener('offline', off)
+    }
+  }, [goOffline]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 回線はあるのに Google につながらなかった場合: オフライン表示中は1分ごとに確かめ、つながれば戻す
+  useEffect(() => {
+    if (!offlineSnap) return
+    const timer = window.setInterval(async () => {
+      const t = tokenRef.current
+      if (!navigator.onLine || !t || !tokenValid()) return
+      try {
+        await listCalendars(t)
+        setOfflineSnap(null)
+        setReloadKey((k) => k + 1)
+        setNotice('Google につながったので、最新の予定に更新しました')
+      } catch {
+        /* まだつながらない */
+      }
+    }, 60_000)
+    return () => window.clearInterval(timer)
+  }, [offlineSnap]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function setOfflineCache(on: boolean) {
+    setPrefs({ ...prefs, offlineCache: on })
+    prefsRef.current = { ...prefs, offlineCache: on }
+    if (on) {
+      void syncOffline(true)
+    } else {
+      await clearSnapshot().catch(() => {})
+      setSavedInfo(null)
+    }
   }
 
   // 設定画面を開いたときも一覧を読み直す(「既存カレンダーの編集」に新しいカレンダーを出すため)
   useEffect(() => {
-    if (tab !== 'settings' || !token) return
+    if (tab !== 'settings' || !token || offlineSnap) return
     let cancelled = false
     listCalendars(token)
       .then((list) => !cancelled && replaceCalendars(list.items))
@@ -171,7 +312,7 @@ export default function App() {
 
   // その日最初の自動バックアップ
   useEffect(() => {
-    if (!token || !calendars.length || !canPickFolder() || !isDueToday()) return
+    if (!token || offlineSnap || !calendars.length || !canPickFolder() || !isDueToday()) return
     let stop = false
     ;(async () => {
       const dir = await getAutoDir()
@@ -182,7 +323,7 @@ export default function App() {
     return () => {
       stop = true
     }
-  }, [token, calendars.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token, calendars.length, offlineSnap]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function runAuto(dir: FileSystemDirectoryHandle) {
     if (!token) return
@@ -210,6 +351,19 @@ export default function App() {
     savePref('hiddenCalendars', [...next])
   }
 
+  /** 設定画面の「既存カレンダーの編集」を開く(確認画面から飛ぶとき) */
+  function openEditSettings() {
+    setOpenEvent(null)
+    setSheetOpen(false)
+    setTab('settings')
+    window.setTimeout(() => {
+      const el = document.getElementById('edit-existing')
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      el?.classList.add('flash')
+      window.setTimeout(() => el?.classList.remove('flash'), 1600)
+    }, 50)
+  }
+
   function changeView(v: ViewKind) {
     setView(v)
     savePref('view', v)
@@ -221,18 +375,21 @@ export default function App() {
 
   const { start, end } = viewRange(view, cursor, weekOpts)
   const visibleCalendars = useMemo(() => calendars.filter((c) => !hidden.has(c.id)), [calendars, hidden])
-  const { byDay, loading } = useRangeEvents(token, calendars, hidden, colors, start, end, reloadKey, handleError)
+  // オフライン表示中は Google に問い合わせない・書き込まない
+  const liveToken = offlineSnap ? null : token
+  const { byDay, loading } = useRangeEvents(liveToken, offlineSnap, calendars, hidden, colors, start, end, reloadKey, handleError)
   const selectedEvents = byDay.get(ymd(selected)) ?? []
   const editing = useEditing({
-    token,
+    token: liveToken,
     calendars,
     colors,
     onChanged: () => setReloadKey((k) => k + 1),
     onCalendarsChanged: () => setCalendars([]),
     onError: handleError,
     onNotice: setNotice,
+    onOpenEditSettings: openEditSettings,
     // 追加画面の「予定の検索」: 表示中のカレンダー(日付メモを除く)から探す
-    searchPast: token ? (q) => searchEvents(token, visibleCalendars.filter((c) => !isMemoCalendar(c)), colors, q, reloadKey) : undefined,
+    searchPast: liveToken ? (q) => searchEvents(liveToken, visibleCalendars.filter((c) => !isMemoCalendar(c)), colors, q, reloadKey) : undefined,
     suggestStart: (date) => {
       // その日に終わる時間指定の予定のうち、一番遅い終了時刻(終日・日付メモ・翌日にまたがる予定は除く)
       const ends = (byDay.get(ymd(date)) ?? [])
@@ -275,13 +432,22 @@ export default function App() {
     setSearchQuery('')
   }
 
-  if (!token) {
+  if (!token && !offlineSnap) {
     return (
       <main className="login-screen">
         <h1>WebCalendar</h1>
         <p className="muted">Google カレンダーの予定を表示・編集します</p>
         <button onClick={login}>Google にログイン</button>
+        {savedInfo && (
+          <>
+            <button className="ghost" onClick={() => void goOffline()}>
+              オフラインで表示({new Date(savedInfo.savedAt).toLocaleString('ja-JP')} に保存した予定)
+            </button>
+            {!online && <p className="muted small-text">ネットにつながっていません。保存した予定を見ることはできます(追加・変更はできません)。</p>}
+          </>
+        )}
         {error && <p className="error">{error}</p>}
+        <p className="muted small-text">{versionDetail}</p>
       </main>
     )
   }
@@ -335,13 +501,17 @@ export default function App() {
     body = (
       <main className="single import-wide">
         <button className="small ghost back" onClick={() => setTab('settings')}>‹ 設定に戻る</button>
+        {!liveToken ? (
+          <p className="card warn">オフライン中は取り込みできません。</p>
+        ) : (
         <ImportPanel
-          token={token}
+          token={liveToken}
           calendars={calendars}
           onCalendarsChanged={() => setCalendars([])}
           onDone={() => setReloadKey((k) => k + 1)}
           onError={handleError}
         />
+        )}
       </main>
     )
   } else if (tab === 'settings') {
@@ -355,13 +525,24 @@ export default function App() {
           calendars={calendars}
           canEditExisting={canEditExisting(token)}
           onOpenImport={canPickFolder() ? () => setTab('import') : undefined}
+          offline={{
+            enabled: prefs.offlineCache,
+            onToggle: setOfflineCache,
+            savedInfo,
+            status: offlineSync,
+            onSaveNow: liveToken ? () => void syncOffline(true) : undefined,
+          }}
         />
       </main>
     )
   } else if (tab === 'backup') {
     body = (
       <main className="single">
-        <BackupPanel token={token} onError={handleError} onDone={() => setAuto({ kind: 'idle' })} />
+        {liveToken ? (
+          <BackupPanel token={liveToken} onError={handleError} onDone={() => setAuto({ kind: 'idle' })} />
+        ) : (
+          <p className="card warn">オフライン中はバックアップできません。ネットにつながってから「更新」を押してください。</p>
+        )}
         <ChangeHistory onUndo={(entry, done) => editing.undo(entry, done)} />
       </main>
     )
@@ -369,7 +550,8 @@ export default function App() {
     body = (
       <main className="single search-wide">
         <SearchView
-          token={token}
+          token={liveToken}
+          offline={offlineSnap}
           calendars={visibleCalendars}
           colors={colors}
           query={searchQuery}
@@ -473,7 +655,7 @@ export default function App() {
           <button className="small" type="submit">検索</button>
         </form>
         <div className="menu">
-          {editing.canCreate && (
+          {editing.canCreate && !offlineSnap && (
             <button className="small" onClick={() => editing.startCreate(selected)}>＋ 予定</button>
           )}
           <button className={`small ghost ${tab === 'backup' ? 'active' : ''}`} onClick={() => setTab(tab === 'backup' ? 'calendar' : 'backup')}>
@@ -482,12 +664,37 @@ export default function App() {
           <button className={`small ghost ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab(tab === 'settings' ? 'calendar' : 'settings')}>
             設定
           </button>
-          <button className="small ghost" onClick={refresh} title="Google から再読み込み">更新</button>
+          <button className="small ghost" onClick={refresh} title={offlineSnap ? 'ネットにつながっていれば最新に戻す' : 'Google から再読み込み'}>
+            更新
+          </button>
           <button className="small ghost" onClick={logout}>ログアウト</button>
+          <button className="version-tag" title={`${versionDetail}(押すと設定で詳しく表示)`} onClick={() => setTab('settings')}>
+            {versionLabel}
+          </button>
         </div>
       </header>
 
-      {expired && (
+      {newer && (
+        <div className="banner">
+          新しいヴァージョン(ver {newer.version}・{newer.built}・ビルド {newer.commit})が公開されています。
+          <button className="small" onClick={() => window.location.reload()}>再読み込みして更新</button>
+        </div>
+      )}
+
+      {offlineSnap && (
+        <div className="banner warn-banner">
+          オフライン表示中: {new Date(offlineSnap.savedAt).toLocaleString('ja-JP')} に保存した予定です(閲覧と検索のみ。追加・変更はできません)。
+          {online ? (
+            <>
+              {' '}ネットにつながっています。
+              <button className="small" onClick={refresh}>{tokenValid() ? '最新にする' : 'ログインして最新にする'}</button>
+            </>
+          ) : (
+            ' ネットにつながると自動で最新に戻ります(ログインが切れている場合はボタンが出ます)。'
+          )}
+        </div>
+      )}
+      {expired && !offlineSnap && (
         <div className="banner warn-banner">
           ログインの有効期限が切れました。<button className="small" onClick={login}>再ログイン</button>
         </div>
@@ -544,7 +751,9 @@ export default function App() {
           onShowDay={showDay}
           onEdit={editing.canEdit(openEvent) ? () => (setOpenEvent(null), editing.startEdit(openEvent)) : undefined}
           onDelete={editing.canEdit(openEvent) ? () => editing.startDelete(openEvent, () => setOpenEvent(null)) : undefined}
-          onSaveTemplate={editing.isMemo(openEvent) ? undefined : () => editing.saveAsTemplate(openEvent)}
+          onSaveTemplate={editing.isMemo(openEvent) || offlineSnap ? undefined : () => editing.saveAsTemplate(openEvent)}
+          readOnlyNote={offlineSnap ? 'オフライン中は編集できません' : undefined}
+          words={searchQuery && tab === 'calendar' ? searchWords(searchQuery) : undefined}
         />
       )}
       {editing.dialogs}

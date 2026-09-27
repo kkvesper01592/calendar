@@ -2,6 +2,7 @@ import { ACCENTS, FONT_LABELS, type Prefs } from './prefs'
 import { describeTemplate, type Template } from '../editing/templates'
 import type { CalendarListEntry } from '../google/calendarReadApi'
 import { isAppCalendar, isEditableRole } from '../google/calendarWriteApi'
+import { buildInfo, versionDetail } from '../lib/version'
 
 const WD = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -13,10 +14,17 @@ interface Props {
   calendars: CalendarListEntry[]
   canEditExisting: boolean // ログイン時に「予定の編集」が許可されているか
   onOpenImport?: () => void // PC のときだけ(フォルダの読み取りが必要)
+  offline: {
+    enabled: boolean // この端末に保存するか
+    onToggle: (on: boolean) => void
+    savedInfo: { savedAt: string; count: number } | null
+    status: string // 保存中の進み具合・エラー
+    onSaveNow?: () => void // オンラインのときだけ
+  }
 }
 
 /** 見た目・週・テンプレートの設定 */
-export default function SettingsPanel({ prefs, onChange, templates, onTemplatesChange, calendars, canEditExisting, onOpenImport }: Props) {
+export default function SettingsPanel({ prefs, onChange, templates, onTemplatesChange, calendars, canEditExisting, onOpenImport, offline }: Props) {
   const existing = calendars.filter((c) => !isAppCalendar(c))
   const appMade = calendars.filter(isAppCalendar)
   const set = <K extends keyof Prefs>(k: K, v: Prefs[K]) => onChange({ ...prefs, [k]: v })
@@ -25,6 +33,16 @@ export default function SettingsPanel({ prefs, onChange, templates, onTemplatesC
 
   return (
     <>
+      <section className="card settings">
+        <h2>このアプリについて</h2>
+        <p>
+          <strong>{versionDetail}</strong>
+        </p>
+        <p className="hint small-text">
+          PC とスマホでこの表示(特に「ビルド {buildInfo.commit}」)が同じなら、同じプログラムを使っています。違うときは再読み込みしてください(スマホのアプリは閉じて開き直す)。新しい版が公開されると、画面上部にお知らせが出ます。
+        </p>
+      </section>
+
       <section className="card settings">
         <h2>表示</h2>
         <div className="set-row">
@@ -101,7 +119,7 @@ export default function SettingsPanel({ prefs, onChange, templates, onTemplatesC
         <p className="hint small-text">祝日は曜日にかかわらず赤で表示します。</p>
       </section>
 
-      <section className="card settings">
+      <section className="card settings" id="edit-existing">
         <h2>既存カレンダーの編集</h2>
         <p className="hint small-text">
           チェックを入れたカレンダーだけ、このアプリで予定の追加・変更・削除ができます。変更・削除の前の内容は必ず変更履歴に残り、「バックアップ」画面から元に戻せます。
@@ -152,6 +170,31 @@ export default function SettingsPanel({ prefs, onChange, templates, onTemplatesC
           </>
         )}
         <p className="hint small-text">Google カレンダーで追加したカレンダーが見当たらないときは、右上の「更新」を押してください。</p>
+      </section>
+
+      <section className="card settings" id="offline">
+        <h2>オフライン表示</h2>
+        <p className="hint small-text">
+          オンにすると、この端末(ブラウザ)に全カレンダーの予定(過去〜2年先)を保存し、ネットがつながらないときも予定の閲覧と検索ができます。
+          追加・変更はネットにつながってから行います。つながると自動で最新に戻ります。
+          設定は端末ごとです。保存した予定は暗号化されていないため、他の人も使う端末ではオンにしないでください。オフにすると端末から消します。
+        </p>
+        <label className="check">
+          <input type="checkbox" checked={offline.enabled} onChange={(e) => offline.onToggle(e.target.checked)} /> この端末にオフライン用の予定を保存する
+        </label>
+        {offline.enabled && (
+          <p className="small-text">
+            {offline.savedInfo
+              ? `保存済み: ${new Date(offline.savedInfo.savedAt).toLocaleString('ja-JP')}(予定 ${offline.savedInfo.count} 件)。ログイン中は、ログインしたとき・「更新」を押したとき・予定を変更したあと(30分に1回まで)に保存し直します。`
+              : 'まだ保存されていません。'}{' '}
+            {offline.onSaveNow && (
+              <button className="small ghost" onClick={offline.onSaveNow}>
+                今すぐ保存
+              </button>
+            )}
+          </p>
+        )}
+        {offline.status && <p className="small-text muted">{offline.status}</p>}
       </section>
 
       <section className="card settings">

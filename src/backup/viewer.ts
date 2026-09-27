@@ -35,6 +35,58 @@ function row(ev: CalendarEvent): string {
 </tr>`
 }
 
+// 予定一覧.html の絞り込み: アプリの検索と同じく全角/半角・大文字/小文字・数字のカンマを区別せず、
+// スペース区切りは「すべて含む」。一致した言葉に色を付ける(src/lib/highlight.ts と同じ考え方)
+const VIEWER_SCRIPT = String.raw`
+(function(){
+  function nc(c){return c.normalize('NFKC').toLowerCase()}
+  function norm(s){return s.normalize('NFKC').toLowerCase().replace(/(\d),(?=\d{3})/g,'$1')}
+  function ranges(text,words){
+    var chars=Array.from(text),n='',from=[],to=[],pos=0;
+    for(var i=0;i<chars.length;i++){
+      var c=chars[i];
+      if(chars[i+1]==='ﾞ'||chars[i+1]==='ﾟ')c+=chars[++i];
+      var comma=nc(c)===','&&/\d$/.test(nc(chars[i-1]||''))&&/^\d{3}/.test(nc(chars.slice(i+1,i+4).join('')));
+      if(!comma){var m=nc(c);for(var k=0;k<m.length;k++){from.push(pos);to.push(pos+c.length)}n+=m}
+      pos+=c.length;
+    }
+    var r=[];
+    words.forEach(function(w){var at=n.indexOf(w);while(at>=0){r.push([from[at],to[at+w.length-1]]);at=n.indexOf(w,at+w.length)}});
+    r.sort(function(a,b){return a[0]-b[0]});
+    var out=[];r.forEach(function(x){var l=out[out.length-1];if(l&&x[0]<=l[1])l[1]=Math.max(l[1],x[1]);else out.push([x[0],x[1]])});
+    return out;
+  }
+  function mark(el,words){
+    var w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT),nodes=[];
+    while(w.nextNode())nodes.push(w.currentNode);
+    nodes.forEach(function(t){
+      var rs=ranges(t.nodeValue,words);if(!rs.length)return;
+      var f=document.createDocumentFragment(),last=0,s=t.nodeValue;
+      rs.forEach(function(x){
+        if(x[0]>last)f.appendChild(document.createTextNode(s.slice(last,x[0])));
+        var mk=document.createElement('mark');mk.textContent=s.slice(x[0],x[1]);f.appendChild(mk);last=x[1];
+      });
+      if(last<s.length)f.appendChild(document.createTextNode(s.slice(last)));
+      t.parentNode.replaceChild(f,t);
+    });
+  }
+  var rows=[].slice.call(document.querySelectorAll('tbody tr'));
+  rows.forEach(function(tr){tr._html=tr.innerHTML;tr._text=norm(tr.textContent)});
+  var timer=null,q=document.getElementById('q'),count=document.getElementById('count');
+  function apply(){
+    var words=norm(q.value).split(/\s+/).filter(Boolean),hit=0;
+    rows.forEach(function(tr){
+      if(tr._marked){tr.innerHTML=tr._html;tr._marked=false}
+      var ok=!words.length||words.every(function(w){return tr._text.indexOf(w)>=0});
+      tr.classList.toggle('hidden',!ok);
+      if(ok&&words.length){mark(tr,words);tr._marked=true;hit++}
+    });
+    count.textContent=words.length?hit+' 件':'';
+  }
+  q.addEventListener('input',function(){clearTimeout(timer);timer=setTimeout(apply,200)});
+})();
+`
+
 /** バックアップ内容をブラウザで読める1枚の HTML にする(外部参照なし) */
 export function toViewerHtml(b: FullBackup): string {
   const created = new Date(b.createdAt).toLocaleString('ja-JP')
@@ -79,16 +131,14 @@ th,td{border:1px solid #ddd;padding:4px 8px;vertical-align:top;text-align:left}t
 .tag{display:inline-block;font-size:11px;background:#e8f0fe;color:#1a56c4;border-radius:4px;padding:0 6px;margin-top:2px}
 .sub{font-size:11px;color:#888;word-break:break-all}
 input{font-size:14px;padding:6px 10px;width:320px;max-width:100%;margin:8px 0}
-.hidden{display:none}
+.hidden{display:none}mark{background:#ffe066;color:#1a1a1a;border-radius:2px;padding:0 1px}#count{color:#666;font-size:13px;margin-left:8px}
 </style></head><body>
 <h1>Google カレンダー バックアップ 予定一覧</h1>
 <p class="meta">取得日時: ${h(created)} ／ カレンダー ${b.calendars.length} 件 ／ 予定 合計 ${total} 件</p>
 <p class="meta">このファイルは閲覧用です。復元には同じフォルダの .ics(Google カレンダーにインポート)または full_backup.json を使います。</p>
 <ul>${toc}</ul>
-<input id="q" type="search" placeholder="絞り込み(タイトル・場所・メモ)">
+<input id="q" type="search" placeholder="絞り込み(タイトル・場所・メモ。スペース区切りはすべて含む)"><span id="count"></span>
 ${sections}
-<script>
-document.getElementById('q').addEventListener('input',function(){var q=this.value.toLowerCase();document.querySelectorAll('tbody tr').forEach(function(tr){tr.classList.toggle('hidden',q&&tr.textContent.toLowerCase().indexOf(q)<0)})});
-</script>
+<script>${VIEWER_SCRIPT}</script>
 </body></html>`
 }

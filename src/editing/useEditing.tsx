@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { AccessToken } from '../google/auth'
 import { getEvent, type CalendarEvent, type CalendarListEntry } from '../google/calendarReadApi'
-import { canWrite, canWriteCalendar, createAppCalendar, createEvent, deleteEvent, isAppCalendar, isMemoCalendar, moveEvent, undoChange, updateEvent } from '../google/calendarWriteApi'
+import { canEditExisting, canWrite, canWriteCalendar, createAppCalendar, createEvent, deleteEvent, isAppCalendar, isEditableRole, isMemoCalendar, moveEvent, undoChange, updateEvent } from '../google/calendarWriteApi'
 import { getAutoDir, isDueToday, permission, requestPermission, runBackupTo, setAutoDir } from '../backup/autoBackup'
 import { canPickFolder, pickFolder } from '../backup/saveToFolder'
 import type { JournalEntry } from '../backup/journal'
@@ -24,12 +24,13 @@ interface Options {
   onNotice: (msg: string) => void
   suggestStart: (date: Date) => Date | undefined // 新しい予定の開始時刻の候補(その日の最後の予定の終了時刻)
   searchPast?: (query: string) => Promise<DisplayEvent[]> // 追加画面の「予定の検索」
+  onOpenEditSettings: () => void // 設定の「既存カレンダーの編集」を開く
 }
 
 type Confirm = { title: string; message?: string; choices: Choice[] }
 
 /** 予定の追加・編集・削除と日付メモの画面の流れをまとめる */
-export function useEditing({ token, calendars, colors, onChanged, onCalendarsChanged, onError, onNotice, suggestStart, searchPast }: Options) {
+export function useEditing({ token, calendars, colors, onChanged, onCalendarsChanged, onError, onNotice, suggestStart, searchPast, onOpenEditSettings }: Options) {
   const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [memo, setMemo] = useState<{ date: Date; existing?: DisplayEvent } | null>(null)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
@@ -55,6 +56,10 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
   const memoCalendar = writable ? calendars.find(isMemoCalendar) : undefined
   const hasTestCalendar = calendars.some((c) => isAppCalendar(c) && !isMemoCalendar(c))
   const hasMemoCalendar = calendars.some(isMemoCalendar)
+  // 既存カレンダーのうち、まだ編集を許可していないもの(追加画面では選べない)
+  // (ログインしていない=オフライン表示中は、そもそも追加できないので空)
+  const lockedCalendars = token ? calendars.filter((c) => !isAppCalendar(c) && isEditableRole(c) && !canWriteCalendar(token, c)) : []
+  const noExistingAllowed = !eventCalendars.some((c) => !isAppCalendar(c)) && lockedCalendars.length > 0
 
   const isMemo = (e: DisplayEvent) => isMemoCalendar(e.calendar)
   const canEdit = (e: DisplayEvent) => canWriteCalendar(token, e.calendar)
@@ -119,11 +124,34 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
     }
   }
 
+  /**
+   * 既存カレンダーの編集を1つも許可していないときは、入力を始める前に確認する
+   * (設定を忘れたまま入力して、保存先に困るのを防ぐ)。許可していれば、そのまま go を実行
+   */
+  function checkExistingAllowed(go: () => void) {
+    if (!noExistingAllowed) return go()
+    const appNames = eventCalendars.map((c) => `「${c.summaryOverride || c.summary}」`).join('')
+    setConfirm({
+      title: '既存カレンダーの編集が許可されていません',
+      message: canEditExisting(token)
+        ? `「${lockedCalendars.map((c) => c.summaryOverride || c.summary).join('」「')}」などの既存カレンダーには、今は予定を追加できません。追加するには「設定」→「既存カレンダーの編集」でチェックを入れてください。` +
+          (appNames ? `このまま進むと、保存先はアプリが作ったカレンダー(${appNames})だけになります。` : '')
+        : 'ログイン時に「予定の表示と編集」が許可されていないため、既存カレンダーには予定を追加できません。「設定」の「既存カレンダーの編集」の説明に従って、再ログインしてください。' +
+          (appNames ? `このまま進むと、保存先はアプリが作ったカレンダー(${appNames})だけになります。` : ''),
+      choices: [
+        { label: '「既存カレンダーの編集」を開く', action: () => (setConfirm(null), onOpenEditSettings()) },
+        ...(eventCalendars.length ? [{ label: 'アプリのカレンダーに追加する', action: () => (setConfirm(null), go()) }] : []),
+      ],
+    })
+  }
+
   /** hour を指定しない追加は、その日の最後の予定が終わる時刻から始める */
   function startCreate(date: Date, hour?: number) {
-    if (!eventCalendars.length) return
-    prefetchBackup()
-    setEditor({ mode: 'create', date, hour, start: hour === undefined ? suggestStart(date) : undefined })
+    if (!eventCalendars.length && !lockedCalendars.length) return
+    checkExistingAllowed(() => {
+      prefetchBackup()
+      setEditor({ mode: 'create', date, hour, start: hour === undefined ? suggestStart(date) : undefined })
+    })
   }
 
   /** 繰り返しの予定は「この回だけ」か「すべて」かを選んでから編集する */
@@ -246,13 +274,19 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
   }
 
   function startQuickAdd(date: Date) {
-    prefetchBackup()
-    if (eventCalendars.length) setQuick(date)
+    if (!eventCalendars.length && !lockedCalendars.length) return
+    checkExistingAllowed(() => {
+      prefetchBackup()
+      if (eventCalendars.length) setQuick(date)
+    })
   }
 
-  /** ひな形からその日に登録。保存先はひな形のカレンダー(書き込めなければ最初の書き込めるカレンダー) */
+  /** ひな形からその日に登録。保存先はひな形のカレンダー(ひな形にカレンダーが無ければ最初の書き込めるカレンダー) */
   async function addFromTemplate(t: Template, date: Date, mode: TemplateTimeMode) {
     if (!token) return
+    const locked = t.calendarId ? lockedCalendars.find((c) => c.id === t.calendarId) : undefined
+    // 保存先が許可されていないカレンダーのときは、黙って別のカレンダーに入れずに止める
+    if (locked) throw new Error(`テンプレートの保存先「${locked.summaryOverride || locked.summary}」は編集が許可されていません(「設定」→「既存カレンダーの編集」で許可できます)`)
     const cal = eventCalendars.find((c) => c.id === t.calendarId) ?? eventCalendars[0]
     if (!cal) return
     await ensureBackup(cal)
@@ -302,6 +336,7 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
         <EventEditor
           target={editor}
           calendars={eventCalendars}
+          lockedCalendars={lockedCalendars}
           colors={colors}
           templates={templates}
           timeMode={timeMode}
@@ -369,7 +404,7 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
   return {
     writable,
     undo,
-    canCreate: eventCalendars.length > 0,
+    canCreate: eventCalendars.length > 0 || lockedCalendars.length > 0,
     canMemo: !!memoCalendar,
     hasTestCalendar,
     hasMemoCalendar,

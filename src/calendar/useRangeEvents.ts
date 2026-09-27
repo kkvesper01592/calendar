@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AccessToken } from '../google/auth'
 import { listEventsInRange, type CalendarEvent, type CalendarListEntry } from '../google/calendarReadApi'
 import { eventDayKeys, eventRange, isAllDay, ymd } from '../lib/dates'
+import type { OfflineSnapshot } from '../offline/offlineStore'
 
 export interface DisplayEvent {
   key: string
@@ -25,9 +26,11 @@ export function compareEvents(a: DisplayEvent, b: DisplayEvent): number {
   return ad - bd || eventRange(a.ev).start.getTime() - eventRange(b.ev).start.getTime()
 }
 
-/** 期間内の予定を、見えているカレンダーから取得して日付(YYYY-MM-DD)ごとにまとめる */
+/** 期間内の予定を、見えているカレンダーから取得して日付(YYYY-MM-DD)ごとにまとめる。
+ * offline を渡すと Google には問い合わせず、この端末に保存した予定から取り出す */
 export function useRangeEvents(
   token: AccessToken | null,
+  offline: OfflineSnapshot | null,
   calendars: CalendarListEntry[],
   hidden: Set<string>,
   colors: Colors | null,
@@ -47,16 +50,24 @@ export function useRangeEvents(
   }, [reloadKey])
 
   useEffect(() => {
-    if (!token) return
+    if (!token && !offline) return
     let cancelled = false
     const visible = calendars.filter((c) => !hidden.has(c.id))
     setLoading(true)
     Promise.all(
       visible.map(async (cal) => {
+        if (offline) {
+          // 保存した予定のうち、表示期間に重なるもの
+          const items = (offline.events[cal.id] ?? []).filter((ev) => {
+            const r = eventRange(ev)
+            return r.end > start && r.start < end
+          })
+          return { cal, items }
+        }
         const k = `${cal.id}|${startKey}|${endKey}`
         let items = cache.current.get(k)
         if (!items) {
-          items = await listEventsInRange(token, cal.id, start, end)
+          items = await listEventsInRange(token!, cal.id, start, end)
           cache.current.set(k, items)
         }
         return { cal, items }
@@ -85,7 +96,7 @@ export function useRangeEvents(
       cancelled = true
     }
     // start/end は日付キーで比較する。onError が変わっても再取得しない
-  }, [token, calendars, hidden, colors, startKey, endKey, reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token, offline, calendars, hidden, colors, startKey, endKey, reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return { byDay, loading }
 }

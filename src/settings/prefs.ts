@@ -11,6 +11,7 @@ export interface Prefs {
   holidayWeekdays: number[] // 休日として赤く表示する曜日
   dayColors: Record<string, string> // 日付マスの背景色 YYYY-MM-DD -> 色
   editableCalendars: string[] // 編集を許可した既存カレンダー(最初は無し)
+  offlineCache: boolean // この端末にオフライン表示用の予定を保存する(最初はオフ)
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -23,6 +24,7 @@ export const DEFAULT_PREFS: Prefs = {
   holidayWeekdays: [0],
   dayColors: {},
   editableCalendars: [],
+  offlineCache: false,
 }
 
 export const FONT_SCALES = [0.85, 0.93, 1, 1.12, 1.25]

@@ -18,6 +18,7 @@ export type EditorTarget =
 interface Props {
   target: EditorTarget
   calendars: CalendarListEntry[] // 書き込めるカレンダー(メモ用を除く)
+  lockedCalendars?: CalendarListEntry[] // 編集を許可していない既存カレンダー(選べないことを知らせるために表示)
   colors: Colors | null
   onSave: (calendar: CalendarListEntry, body: Partial<CalendarEvent>, eventId?: string) => Promise<void>
   onCancel: () => void
@@ -144,7 +145,7 @@ function changedFields(orig: CalendarEvent, next: Partial<CalendarEvent>, allDay
 }
 
 /** 予定の作成・編集フォーム */
-export default function EventEditor({ target, calendars, colors, onSave, onCancel, templates = [], timeMode = 'template', onTimeMode, suggestStart, searchPast }: Props) {
+export default function EventEditor({ target, calendars, lockedCalendars = [], colors, onSave, onCancel, templates = [], timeMode = 'template', onTimeMode, suggestStart, searchPast }: Props) {
   const [templateId, setTemplateId] = useState('')
   const [s, setS] = useState(() => initialState(target, calendars))
   const [saving, setSaving] = useState(false)
@@ -366,7 +367,21 @@ export default function EventEditor({ target, calendars, colors, onSave, onCance
                 {isAppCalendar(c) ? '' : '(既存のカレンダー)'}
               </option>
             ))}
+            {lockedCalendars.length > 0 && (
+              <optgroup label="編集が許可されていないカレンダー(選べません)">
+                {lockedCalendars.map((c) => (
+                  <option key={c.id} value={c.id} disabled>
+                    {c.summaryOverride || c.summary}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
+          {lockedCalendars.length > 0 && (
+            <span className="hint small-text">
+              「{lockedCalendars.map((c) => c.summaryOverride || c.summary).join('」「')}」に保存するには、「設定」→「既存カレンダーの編集」でチェックを入れてください。
+            </span>
+          )}
           {instance && (
             <span className="hint small-text">繰り返しの「この予定のみ」は別のカレンダーに移せません。移すときは「すべての繰り返し」で編集してください。</span>
           )}
