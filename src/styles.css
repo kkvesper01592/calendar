@@ -490,7 +490,7 @@ a.button.disabled { opacity: 0.5; pointer-events: none; }
 /* 検索結果: 1行目に日時とタイトル、その下に一致した行(場所・メモ) */
 .search-row { align-items: stretch; }
 .search-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.search-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.search-row-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .search-line {
   font-size: calc(12.5px * var(--fs)); color: var(--muted); white-space: pre-wrap; word-break: break-all;
   padding-left: calc(12px * var(--fs) * 17.5 + 8px);
@@ -499,6 +499,6 @@ a.button.disabled { opacity: 0.5; pointer-events: none; }
 /* 検索語の色(ライト・ダークとも読みやすい黄色の背景) */
 mark.hit { background: #ffe066; color: #1a1a1a; border-radius: 2px; padding: 0 1px; }
 @media (max-width: 760px) {
-  .search-head { flex-wrap: wrap; gap: 0 8px; }
+  .search-row-head { flex-wrap: wrap; gap: 0 8px; }
   .search-line { padding-left: 0; }
 }

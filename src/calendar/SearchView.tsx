@@ -71,7 +71,7 @@ export default function SearchView({ token, offline, calendars, colors, query, r
           >
             <span className="bar" style={{ background: item.color }} />
             <span className="search-main">
-              <span className="search-head">
+              <span className="search-row-head">
                 <span className="row-when">{describeWhen(item.ev)}</span>
                 <span className="row-title">
                   <Highlight text={item.ev.summary || '(タイトルなし)'} words={words} />
