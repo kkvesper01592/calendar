@@ -57,8 +57,10 @@ function loadGis(): Promise<void> {
 export const hasScope = (token: AccessToken, scope: string) => token.scope.split(' ').includes(scope)
 
 /** ポップアップで Google にログインし、アクセストークンを得る。トークンはメモリ上だけに保持する。
- * required が許可されなければ失敗。それ以外(optional)は許可されなくてもログインは続ける */
-export async function requestAccessToken(required: string, optional: string[] = []): Promise<AccessToken> {
+ * required が許可されなければ失敗。それ以外(optional)は許可されなくてもログインは続ける。
+ * silent: 一度許可した後のログインし直し(有効期限の更新)。確認画面を出さず、ポップアップは自動で閉じる
+ * (ブラウザの決まりで、ボタンを押した操作の中から呼ぶ必要がある) */
+export async function requestAccessToken(required: string, optional: string[] = [], opts: { silent?: boolean } = {}): Promise<AccessToken> {
   await loadGis()
   const oauth2 = window.google!.accounts.oauth2
   return new Promise((resolve, reject) => {
@@ -73,9 +75,17 @@ export async function requestAccessToken(required: string, optional: string[] = 
         resolve({ value: res.access_token, expiresAt: Date.now() + res.expires_in * 1000, scope: res.scope })
       },
       error_callback: (err) =>
-        reject(new Error(err.type === 'popup_closed' ? 'ログイン画面が閉じられました' : err.message || err.type)),
+        reject(
+          new Error(
+            err.type === 'popup_closed'
+              ? 'ログイン画面が閉じられました'
+              : err.type === 'popup_failed_to_open'
+                ? 'ログイン用の小さな画面を開けませんでした。ブラウザでこのサイトのポップアップが許可されているか確認してください'
+                : err.message || err.type,
+          ),
+        ),
     })
-    client.requestAccessToken()
+    client.requestAccessToken(opts.silent ? { prompt: '' } : undefined)
   })
 }
 

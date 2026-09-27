@@ -26,12 +26,14 @@ interface Options {
   suggestStart: (date: Date) => Date | undefined // 新しい予定の開始時刻の候補(その日の最後の予定の終了時刻)
   searchPast?: (query: string) => Promise<DisplayEvent[]> // 追加画面の「予定の検索」
   onOpenEditSettings: () => void // 設定の「既存カレンダーの編集」を開く
+  // ボタン操作の中から呼ぶ: ログインの残り時間が少なければログインし直して、使えるトークンを返す
+  ensureToken: (minMs?: number) => Promise<AccessToken>
 }
 
 type Confirm = { title: string; message?: string; choices: Choice[] }
 
 /** 予定の追加・編集・削除と日付メモの画面の流れをまとめる */
-export function useEditing({ token, calendars, colors, onChanged, onCalendarsChanged, onError, onNotice, suggestStart, searchPast, onOpenEditSettings }: Options) {
+export function useEditing({ token, calendars, colors, onChanged, onCalendarsChanged, onError, onNotice, suggestStart, searchPast, onOpenEditSettings, ensureToken }: Options) {
   const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [memo, setMemo] = useState<{ date: Date; existing?: DisplayEvent } | null>(null)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
@@ -70,10 +72,10 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
   const backupRun = useRef<Promise<void> | null>(null)
   const needsBackup = () => !!token && canPickFolder() && isDueToday() && eventCalendars.some((c) => !isAppCalendar(c))
 
-  function startBackup(dir: FileSystemDirectoryHandle): Promise<void> {
+  function startBackup(dir: FileSystemDirectoryHandle, tk: AccessToken): Promise<void> {
     backupRun.current ??= (async () => {
       onNotice('今日のバックアップを保存しています…(そのまま入力を続けられます)')
-      await runBackupTo(dir, token!)
+      await runBackupTo(dir, tk)
       onNotice('今日のバックアップを保存しました')
     })().finally(() => {
       backupRun.current = null
@@ -88,14 +90,14 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
       const dir = await getAutoDir()
       if (!dir) return // 保存先がまだ無ければ、保存するときに選んでもらう
       if ((await permission(dir)) !== 'granted' && !(await requestPermission(dir))) return
-      await startBackup(dir)
+      await startBackup(dir, token!)
     })().catch(() => {
       /* ここで失敗しても、保存するときにもう一度試す */
     })
   }
 
   /** 既存カレンダーへ書き込む直前に呼ぶ: 今日のバックアップが済むまで待つ(入力内容は消えない) */
-  async function ensureBackup(cal: CalendarListEntry) {
+  async function ensureBackup(cal: CalendarListEntry, tk: AccessToken) {
     if (isAppCalendar(cal) || !canPickFolder() || !isDueToday()) return
     if (backupRun.current) {
       await backupRun.current.catch(() => {})
@@ -115,7 +117,7 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
     if ((await permission(dir)) !== 'granted' && !(await requestPermission(dir))) {
       throw new Error('バックアップの保存先フォルダへの書き込みが許可されませんでした。入力内容はそのまま残っています。もう一度「保存」を押して「許可」を選んでください')
     }
-    await startBackup(dir)
+    await startBackup(dir, tk)
   }
 
   const run = async (fn: () => Promise<unknown>) => {
@@ -148,10 +150,16 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
     })
   }
 
+  /** 入力画面を開くとき: ログインの残りが15分未満なら、先にログインし直しておく(入力中に有効期限が切れないように) */
+  const warmUpLogin = () => {
+    if (token) ensureToken(15 * 60_000).catch(() => {}) // 失敗しても、保存するときにもう一度試す
+  }
+
   /** hour を指定しない追加は、その日の最後の予定が終わる時刻から始める */
   function startCreate(date: Date, hour?: number) {
     if (!eventCalendars.length && !lockedCalendars.length) return
     checkExistingAllowed(() => {
+      warmUpLogin()
       prefetchBackup()
       setEditor({ mode: 'create', date, hour, start: hour === undefined ? suggestStart(date) : undefined })
     })
@@ -160,6 +168,7 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
   /** 繰り返しの予定は「この回だけ」か「すべて」かを選んでから編集する */
   function startEdit(item: DisplayEvent) {
     if (!token) return
+    warmUpLogin()
     if (!isAppCalendar(item.calendar)) prefetchBackup()
     if (isMemo(item)) return setMemo({ date: new Date(`${item.ev.start?.date ?? ymd(new Date())}T00:00`), existing: item })
     const masterId = item.ev.recurringEventId
@@ -173,7 +182,8 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
           label: 'すべての繰り返し',
           action: () => {
             setConfirm(null)
-            getEvent(token, item.calendar.id, masterId)
+            ensureToken()
+              .then((tk) => getEvent(tk, item.calendar.id, masterId))
               .then((master) => setEditor({ mode: 'edit', calendar: item.calendar, event: master, instance: false }))
               .catch(onError)
           },
@@ -190,8 +200,9 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
       setConfirm(null)
       after?.()
       run(async () => {
-        await ensureBackup(item.calendar)
-        await deleteEvent(token, item.calendar, id)
+        const tk = await ensureToken()
+        await ensureBackup(item.calendar, tk)
+        await deleteEvent(tk, item.calendar, id)
       })
     }
     const masterId = item.ev.recurringEventId
@@ -231,8 +242,9 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
           action: () => {
             setConfirm(null)
             run(async () => {
-              await ensureBackup(cal)
-              await undoChange(token, cal, entry, (id) => calendars.find((c) => c.id === id))
+              const tk = await ensureToken()
+              await ensureBackup(cal, tk)
+              await undoChange(tk, cal, entry, (id) => calendars.find((c) => c.id === id))
               onNotice(`「${title}」を元に戻しました`)
               after?.()
             })
@@ -243,16 +255,19 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
   }
 
   function startMemo(date: Date, existing?: DisplayEvent) {
-    if (memoCalendar) setMemo({ date, existing })
+    if (!memoCalendar) return
+    warmUpLogin()
+    setMemo({ date, existing })
   }
 
   async function saveMemo(text: string) {
     if (!token || !memoCalendar || !memo) return
+    const tk = await ensureToken()
     const firstLine = text.trim().split('\n')[0].slice(0, 40) || 'メモ'
     const body: Partial<CalendarEvent> = { summary: firstLine, description: text }
-    if (memo.existing) await updateEvent(token, memoCalendar, memo.existing.ev.id, body)
+    if (memo.existing) await updateEvent(tk, memoCalendar, memo.existing.ev.id, body)
     else
-      await createEvent(token, memoCalendar, {
+      await createEvent(tk, memoCalendar, {
         ...body,
         start: { date: ymd(memo.date) },
         end: { date: ymd(addDays(memo.date, 1)) },
@@ -279,6 +294,7 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
   function startQuickAdd(date: Date) {
     if (!eventCalendars.length && !lockedCalendars.length) return
     checkExistingAllowed(() => {
+      warmUpLogin()
       prefetchBackup()
       if (eventCalendars.length) setQuick(date)
     })
@@ -292,8 +308,9 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
     if (locked) throw new Error(`テンプレートの保存先「${locked.summaryOverride || locked.summary}」は編集が許可されていません(「設定」→「既存カレンダーの編集」で許可できます)`)
     const cal = eventCalendars.find((c) => c.id === t.calendarId) ?? eventCalendars[0]
     if (!cal) return
-    await ensureBackup(cal)
-    await createEvent(token, cal, templateToEvent(t, date, templateStart(t, date, mode)))
+    const tk = await ensureToken()
+    await ensureBackup(cal, tk)
+    await createEvent(tk, cal, templateToEvent(t, date, templateStart(t, date, mode)))
     onChanged()
   }
 
@@ -326,7 +343,7 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
     if (!token) return
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Tokyo'
     try {
-      await createAppCalendar(token, kind === 'test' ? 'WebCalendar テスト' : 'メモ', kind === 'test' ? MARK_TEST : MARK_MEMO, tz)
+      await createAppCalendar(await ensureToken(), kind === 'test' ? 'WebCalendar テスト' : 'メモ', kind === 'test' ? MARK_TEST : MARK_MEMO, tz)
       onCalendarsChanged()
     } catch (e) {
       onError(e)
@@ -349,15 +366,17 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
           onCancel={() => setEditor(null)}
           onSave={async (cal, body, eventId) => {
             if (!token) return
+            // 「保存」を押した操作の中で、ログインが切れかけていればログインし直す(入力内容はそのまま)
+            const tk = await ensureToken()
             // 編集中にカレンダーを変えたときは、内容の変更を元のカレンダーで保存してから移動する
             const orig = editor.mode === 'edit' ? editor.calendar : undefined
             const moving = !!orig && orig.id !== cal.id
-            await ensureBackup(cal)
-            if (moving) await ensureBackup(orig!)
+            await ensureBackup(cal, tk)
+            if (moving) await ensureBackup(orig!, tk)
             if (eventId) {
-              if (Object.keys(body).length) await updateEvent(token, orig ?? cal, eventId, body)
-              if (moving) await moveEvent(token, orig!, cal, eventId)
-            } else await createEvent(token, cal, body)
+              if (Object.keys(body).length) await updateEvent(tk, orig ?? cal, eventId, body)
+              if (moving) await moveEvent(tk, orig!, cal, eventId)
+            } else await createEvent(tk, cal, body)
             setEditor(null)
             onChanged()
           }}

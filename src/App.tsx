@@ -180,6 +180,30 @@ export default function App() {
     }
   }
 
+  /**
+   * ボタン操作の中から呼ぶ: ログインの残り時間が minMs 未満なら、確認画面なしでログインし直して新しいトークンを返す
+   * (入力中に有効期限が切れて、入力をやり直すことにならないように)
+   */
+  const refreshing = useRef<Promise<AccessToken> | null>(null)
+  const ensureToken = useCallback(async (minMs = 2 * 60_000): Promise<AccessToken> => {
+    const t = tokenRef.current
+    if (t && t.expiresAt - Date.now() > minMs) return t
+    refreshing.current ??= requestAccessToken(SCOPE_CALENDAR_READONLY, [SCOPE_APP_CREATED, SCOPE_EVENTS], { silent: true })
+      .then((nt) => {
+        tokenRef.current = nt
+        setToken(nt)
+        setExpired(false)
+        return nt
+      })
+      .catch((e) => {
+        throw new Error(`ログインし直せませんでした(${e instanceof Error ? e.message : String(e)})。入力内容はそのまま残っています。もう一度押してください`)
+      })
+      .finally(() => {
+        refreshing.current = null
+      })
+    return refreshing.current
+  }, [])
+
   async function logout() {
     cloudStarted.current = false
     setCloudReady(false)
@@ -492,6 +516,7 @@ export default function App() {
     onError: handleError,
     onNotice: setNotice,
     onOpenEditSettings: openEditSettings,
+    ensureToken,
     // 追加画面の「予定の検索」: 表示中のカレンダー(日付メモを除く)から探す
     searchPast: liveToken ? (q) => searchEvents(liveToken, visibleCalendars.filter((c) => !isMemoCalendar(c)), colors, q, reloadKey) : undefined,
     suggestStart: (date) => {
@@ -817,7 +842,8 @@ export default function App() {
       )}
       {expired && !offlineSnap && (
         <div className="banner warn-banner">
-          ログインの有効期限が切れました。<button className="small" onClick={login}>再ログイン</button>
+          ログインの有効期限が切れました。
+          <button className="small" onClick={() => ensureToken(Number.MAX_SAFE_INTEGER).catch(() => login())}>再ログイン</button>
         </div>
       )}
       {auto.kind === 'needPermission' && (
