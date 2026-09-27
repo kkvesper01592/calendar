@@ -16,7 +16,7 @@ import ChangeHistory from './backup/ChangeHistory'
 import { getAutoDir, isDueToday, permission, requestPermission, runBackupTo } from './backup/autoBackup'
 import { canPickFolder } from './backup/saveToFolder'
 import { eventRange, isAllDay, sameDay, shiftCursor, viewRange, viewTitle, weekDaysOf, ymd, type ViewKind } from './lib/dates'
-import { canEditExisting, isMemoCalendar, setEditableCalendars } from './google/calendarWriteApi'
+import { canEditExisting, canWrite, isMemoCalendar, isSettingsCalendar, setEditableCalendars } from './google/calendarWriteApi'
 import { applyPrefs, loadPrefs, PrefsContext, savePrefs, type Prefs } from './settings/prefs'
 import SettingsPanel from './settings/SettingsPanel'
 import ImportPanel from './importing/ImportPanel'
@@ -24,6 +24,18 @@ import { useMediaQuery } from './lib/useMediaQuery'
 import { useEditing } from './editing/useEditing'
 import { useNewerVersion, versionDetail, versionLabel } from './lib/version'
 import { searchWords } from './lib/highlight'
+import {
+  loadCloudSettings,
+  localDeviceAt,
+  localSharedAt,
+  pickShared,
+  saveCloudSettings,
+  setLocalDeviceAt,
+  setLocalSharedAt,
+  setRememberedFolder,
+  type DeviceKind,
+} from './settings/cloudSettings'
+import type { Template } from './editing/templates'
 import { clearSnapshot, isNetworkError, loadSnapshot, saveSnapshot, snapshotCount, type OfflineSnapshot } from './offline/offlineStore'
 
 // 表示設定(端末ごと)。保存できない環境でも既定値で動く
@@ -55,7 +67,9 @@ type AutoState = { kind: 'idle' } | { kind: 'needPermission' } | { kind: 'runnin
 export default function App() {
   const [token, setToken] = useState<AccessToken | null>(null)
   const [expired, setExpired] = useState(false)
-  const [calendars, setCalendars] = useState<CalendarListEntry[]>([])
+  const [allCalendars, setCalendars] = useState<CalendarListEntry[]>([])
+  // 画面に出すカレンダー(設定の保存用カレンダーは除く)
+  const calendars = useMemo(() => allCalendars.filter((c) => !isSettingsCalendar(c)), [allCalendars])
   const [colors, setColors] = useState<Colors | null>(null)
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(loadPref<string[]>('hiddenCalendars', [])))
   const [showRokuyo, setShowRokuyo] = useState(() => loadPref('showRokuyo', true))
@@ -115,6 +129,8 @@ export default function App() {
   const tokenRef = useRef(token)
   tokenRef.current = token
   calendarsRef.current = calendars
+  const allCalendarsRef = useRef(allCalendars)
+  allCalendarsRef.current = allCalendars
   const tokenValid = () => !!tokenRef.current && tokenRef.current.expiresAt - 60_000 > Date.now()
 
   /** 通信できなくなったとき: 保存した予定があればオフライン表示に切り替える */
@@ -165,6 +181,8 @@ export default function App() {
   }
 
   async function logout() {
+    cloudStarted.current = false
+    setCloudReady(false)
     if (token && online) await revokeToken(token).catch(() => {})
     setToken(null)
     setCalendars([])
@@ -287,6 +305,92 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [offlineSnap]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- 設定を Google にも保存(ブラウザのデータが消えても戻せるように) ----
+  const device: DeviceKind = canPickFolder() ? 'pc' : 'mobile'
+  const cloudStarted = useRef(false) // このログインで復元を始めたか
+  const [cloudReady, setCloudReady] = useState(false) // 復元が終わり、変更を保存してよい状態か
+  const [cloudStatus, setCloudStatus] = useState('')
+  const lastSynced = useRef('') // 最後に Google と合わせた内容(変わったら保存する)
+  const templatesRef = useRef<Template[]>([])
+  const subsetOf = (p: Prefs, templates: Template[]) =>
+    JSON.stringify({ shared: pickShared(p), templates, editable: [...p.editableCalendars].sort() })
+
+  async function pushCloud() {
+    const t = tokenRef.current
+    if (!t || !tokenValid() || offlineRef.current || !navigator.onLine || !canWrite(t)) return
+    const p = prefsRef.current
+    const now = new Date().toISOString()
+    const sharedAt = localSharedAt() || now
+    const deviceAt = localDeviceAt() || now
+    const folder = device === 'pc' ? (await getAutoDir())?.name : undefined
+    try {
+      const r = await saveCloudSettings(t, allCalendarsRef.current, (cur) => ({
+        v: 1,
+        // ほかの端末がもっと新しい内容を保存していたら、それは上書きしない
+        shared:
+          !cur.shared || sharedAt >= cur.shared.updatedAt
+            ? { updatedAt: sharedAt, prefs: pickShared(p), templates: templatesRef.current }
+            : cur.shared,
+        devices: {
+          ...cur.devices,
+          [device]:
+            !cur.devices[device] || deviceAt >= cur.devices[device]!.updatedAt
+              ? { updatedAt: deviceAt, editableCalendars: p.editableCalendars, backupFolderName: folder ?? cur.devices[device]?.backupFolderName }
+              : cur.devices[device],
+        },
+      }))
+      if (!localSharedAt()) setLocalSharedAt(sharedAt)
+      if (!localDeviceAt()) setLocalDeviceAt(deviceAt)
+      setCloudStatus(`Google に保存済み(${new Date().toLocaleString('ja-JP')})`)
+      if (r.createdCalendar) replaceCalendars((await listCalendars(t)).items)
+    } catch (e) {
+      if (!isNetworkError(e)) setCloudStatus(`Google への保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  // ログインしたら1回: Google の方が新しければ(端末の設定が消えていた場合も)Google の内容に戻す
+  useEffect(() => {
+    const t = offlineSnap ? null : token // オフライン表示中は Google に問い合わせない
+    if (!t || !allCalendars.length || cloudStarted.current || !canWrite(t)) return
+    cloudStarted.current = true
+    ;(async () => {
+      let next = prefsRef.current
+      let templates = templatesRef.current
+      let restored = false
+      let needPush = false
+      try {
+        const cloud = await loadCloudSettings(t, allCalendars)
+        const sh = cloud?.shared
+        if (sh && (!localSharedAt() || sh.updatedAt > localSharedAt())) {
+          next = { ...next, ...sh.prefs }
+          templates = sh.templates ?? []
+          setLocalSharedAt(sh.updatedAt)
+          restored = true
+        } else if (!sh || localSharedAt() > sh.updatedAt) needPush = true
+        const dev = cloud?.devices[device]
+        setRememberedFolder(dev?.backupFolderName)
+        if (dev && (!localDeviceAt() || dev.updatedAt > localDeviceAt())) {
+          next = { ...next, editableCalendars: dev.editableCalendars }
+          setLocalDeviceAt(dev.updatedAt)
+          restored = true
+        } else if (!dev || localDeviceAt() > dev.updatedAt) needPush = true
+        if (restored) {
+          setPrefs(next)
+          editing.setTemplates(templates)
+          setNotice('Google に保存しておいた設定を戻しました')
+        }
+        setCloudStatus(cloud ? 'Google の設定と合わせました' : '')
+      } catch (e) {
+        if (!isNetworkError(e)) setCloudStatus(`Google の設定を読めませんでした: ${e instanceof Error ? e.message : String(e)}`)
+        cloudStarted.current = false // 次の機会にもう一度
+        return
+      }
+      lastSynced.current = subsetOf(next, templates)
+      setCloudReady(true)
+      if (needPush) void pushCloud()
+    })()
+  }, [token, offlineSnap, allCalendars]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function setOfflineCache(on: boolean) {
     setPrefs({ ...prefs, offlineCache: on })
     prefsRef.current = { ...prefs, offlineCache: on }
@@ -399,6 +503,21 @@ export default function App() {
       return ends.length ? new Date(Math.max(...ends.map((d) => d.getTime()))) : undefined
     },
   })
+  // 設定・テンプレート・既存カレンダーの編集の許可を変えたら、数秒後に Google にも保存
+  templatesRef.current = editing.templates
+  const syncedSubset = subsetOf(prefs, editing.templates)
+  useEffect(() => {
+    if (!cloudReady || syncedSubset === lastSynced.current) return
+    const prev = lastSynced.current ? (JSON.parse(lastSynced.current) as { shared: unknown; templates: unknown; editable: unknown }) : null
+    const cur = JSON.parse(syncedSubset) as { shared: unknown; templates: unknown; editable: unknown }
+    const now = new Date().toISOString()
+    if (!prev || JSON.stringify([prev.shared, prev.templates]) !== JSON.stringify([cur.shared, cur.templates])) setLocalSharedAt(now)
+    if (!prev || JSON.stringify(prev.editable) !== JSON.stringify(cur.editable)) setLocalDeviceAt(now)
+    lastSynced.current = syncedSubset
+    const timer = window.setTimeout(() => void pushCloud(), 3000)
+    return () => window.clearTimeout(timer)
+  }, [syncedSubset, cloudReady]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const dayListEditProps = {
     isMemo: editing.isMemo,
     onAdd: editing.canCreate ? () => editing.startCreate(selected) : undefined,
@@ -525,6 +644,7 @@ export default function App() {
           calendars={calendars}
           canEditExisting={canEditExisting(token)}
           onOpenImport={canPickFolder() ? () => setTab('import') : undefined}
+          cloudStatus={cloudStatus}
           offline={{
             enabled: prefs.offlineCache,
             onToggle: setOfflineCache,

@@ -1,7 +1,7 @@
 import type { AccessToken } from './auth'
 import { hasScope } from './auth'
 import { AuthExpiredError, getEvent, type CalendarEvent, type CalendarListEntry } from './calendarReadApi'
-import { MARK_IMPORT, MARK_MEMO, MARK_TEST, SCOPE_APP_CREATED, SCOPE_EVENTS } from '../config'
+import { MARK_IMPORT, MARK_MEMO, MARK_SETTINGS, MARK_TEST, SCOPE_APP_CREATED, SCOPE_EVENTS } from '../config'
 import { recordChange, type JournalEntry } from '../backup/journal'
 
 // 予定を書き換える処理はすべてこのファイルに集める。安全装置:
@@ -14,8 +14,11 @@ const BASE = 'https://www.googleapis.com/calendar/v3'
 
 export const isAppCalendar = (cal: CalendarListEntry) => {
   const d = typeof cal.description === 'string' ? cal.description : ''
-  return d.includes(MARK_TEST) || d.includes(MARK_MEMO) || d.includes(MARK_IMPORT)
+  return d.includes(MARK_TEST) || d.includes(MARK_MEMO) || d.includes(MARK_IMPORT) || d.includes(MARK_SETTINGS)
 }
+/** 設定の保存用カレンダー(画面には出さない) */
+export const isSettingsCalendar = (cal: CalendarListEntry) =>
+  typeof cal.description === 'string' && cal.description.includes(MARK_SETTINGS)
 export const isMemoCalendar = (cal: CalendarListEntry) =>
   typeof cal.description === 'string' && cal.description.includes(MARK_MEMO)
 
@@ -147,6 +150,16 @@ export async function insertImported(token: AccessToken, cal: CalendarListEntry,
       await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))
     }
   }
+}
+
+/**
+ * 設定の保存用カレンダーの予定を作る/書き換える(変更履歴には残さない)。
+ * アプリが作った設定用カレンダーにしか書き込まない
+ */
+export async function writeSettingsEvent(token: AccessToken, cal: CalendarListEntry, eventId: string | undefined, body: Partial<CalendarEvent>) {
+  if (!isSettingsCalendar(cal)) throw new Error('設定は設定用のカレンダーにだけ保存できます')
+  guard(token, cal)
+  return (await send<CalendarEvent>(token, eventId ? 'PATCH' : 'POST', evPath(cal.id, eventId), body))!
 }
 
 // 元に戻すときに書き戻す項目

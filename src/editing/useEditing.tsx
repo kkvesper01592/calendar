@@ -4,6 +4,7 @@ import { getEvent, type CalendarEvent, type CalendarListEntry } from '../google/
 import { canEditExisting, canWrite, canWriteCalendar, createAppCalendar, createEvent, deleteEvent, isAppCalendar, isEditableRole, isMemoCalendar, moveEvent, undoChange, updateEvent } from '../google/calendarWriteApi'
 import { getAutoDir, isDueToday, permission, requestPermission, runBackupTo, setAutoDir } from '../backup/autoBackup'
 import { canPickFolder, pickFolder } from '../backup/saveToFolder'
+import { getRememberedFolder } from '../settings/cloudSettings'
 import type { JournalEntry } from '../backup/journal'
 import { MARK_MEMO, MARK_TEST } from '../config'
 import type { Colors, DisplayEvent } from '../calendar/useRangeEvents'
@@ -103,6 +104,8 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
     let dir = await getAutoDir()
     if (!dir) {
       try {
+        // ブラウザのデータが消えて保存先を忘れたとき: 以前のフォルダ名を知らせてから選んでもらう
+        if (getRememberedFolder()) onNotice(`バックアップの保存先を選んでください(以前は「${getRememberedFolder()}」フォルダ)`)
         dir = await pickFolder()
       } catch {
         throw new Error('バックアップの保存先フォルダが選ばれなかったため、保存を中止しました。入力内容はそのまま残っています。もう一度「保存」を押してください')

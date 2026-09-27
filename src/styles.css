@@ -502,3 +502,4 @@ mark.hit { background: #ffe066; color: #1a1a1a; border-radius: 2px; padding: 0 1
   .search-row-head { flex-wrap: wrap; gap: 0 8px; }
   .search-line { padding-left: 0; }
 }
+.small-heading { font-size: calc(14px * var(--fs)); margin: 14px 0 4px; }

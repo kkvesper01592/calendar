@@ -14,6 +14,7 @@ interface Props {
   calendars: CalendarListEntry[]
   canEditExisting: boolean // ログイン時に「予定の編集」が許可されているか
   onOpenImport?: () => void // PC のときだけ(フォルダの読み取りが必要)
+  cloudStatus: string // 設定の Google への保存の状態
   offline: {
     enabled: boolean // この端末に保存するか
     onToggle: (on: boolean) => void
@@ -24,7 +25,7 @@ interface Props {
 }
 
 /** 見た目・週・テンプレートの設定 */
-export default function SettingsPanel({ prefs, onChange, templates, onTemplatesChange, calendars, canEditExisting, onOpenImport, offline }: Props) {
+export default function SettingsPanel({ prefs, onChange, templates, onTemplatesChange, calendars, canEditExisting, onOpenImport, offline, cloudStatus }: Props) {
   const existing = calendars.filter((c) => !isAppCalendar(c))
   const appMade = calendars.filter(isAppCalendar)
   const set = <K extends keyof Prefs>(k: K, v: Prefs[K]) => onChange({ ...prefs, [k]: v })
@@ -41,6 +42,15 @@ export default function SettingsPanel({ prefs, onChange, templates, onTemplatesC
         <p className="hint small-text">
           PC とスマホでこの表示(特に「ビルド {buildInfo.commit}」)が同じなら、同じプログラムを使っています。違うときは再読み込みしてください(スマホのアプリは閉じて開き直す)。新しい版が公開されると、画面上部にお知らせが出ます。
         </p>
+        <h3 className="small-heading">設定の保存</h3>
+        <p className="hint small-text">
+          設定は Google の「WebCalendar 設定」カレンダーにも保存し、ブラウザのデータが消えても、次にログインしたときに自動で戻します。
+          PC とスマホで共通: テーマ色・明るさ・太字・週の始まり・休日の曜日・日付の背景色・テンプレート。
+          PC 用とスマホ用で別々: 既存カレンダーの編集の許可。
+          この端末だけ: 文字の大きさ・週表示の日数・オフライン表示・左の表示/非表示。
+          「WebCalendar 設定」カレンダーと、その中の予定は削除しないでください(Google カレンダーで表示をオフにするのは問題ありません)。
+        </p>
+        {cloudStatus && <p className="small-text muted">{cloudStatus}</p>}
       </section>
 
       <section className="card settings">

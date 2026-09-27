@@ -8,6 +8,9 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('demo')) {
   installDemo()
 }
 
+// この端末のサイトデータ(設定・変更履歴・バックアップ先など)を、容量不足などで自動削除されにくくする
+navigator.storage?.persist?.().catch(() => {})
+
 // 本番だけ Service Worker を登録(ホーム画面へのインストールとオフライン起動用)
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})

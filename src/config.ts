@@ -17,3 +17,4 @@ export const SCOPE_EVENTS = 'https://www.googleapis.com/auth/calendar.events'
 export const MARK_TEST = '[WebCalendar:test]'
 export const MARK_MEMO = '[WebCalendar:memo]'
 export const MARK_IMPORT = '[WebCalendar:import]' // 過去のテキストを取り込む専用カレンダー
+export const MARK_SETTINGS = '[WebCalendar:settings]' // 設定の保存用(画面のカレンダー一覧には出さない)

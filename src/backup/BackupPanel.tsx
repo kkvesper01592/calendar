@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AccessToken } from '../google/auth'
 import { canPickFolder, pickFolder } from './saveToFolder'
+import { getRememberedFolder } from '../settings/cloudSettings'
 import { getAutoDir, lastAutoBackup, permission, requestPermission, runBackupTo, setAutoDir } from './autoBackup'
 
 interface Props {
@@ -79,6 +80,11 @@ export default function BackupPanel({ token, onError, onDone }: Props) {
         <dt>前回</dt>
         <dd>{last ? `${new Date(last.at).toLocaleString('ja-JP')}(予定 ${last.events} 件 / ${last.folderName})` : 'まだありません'}</dd>
       </dl>
+      {!dir && getRememberedFolder() && (
+        <p className="warn small-text">
+          以前は「{getRememberedFolder()}」フォルダに保存していました(Google に保存した設定より)。ブラウザのデータが消えたため、同じフォルダをもう一度選んでください。
+        </p>
+      )}
       {!dir && (
         <p className="hint">
           おすすめ: 「ドキュメント」などに「カレンダーのバックアップ」のようなフォルダを作って選んでください。
