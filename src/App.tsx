@@ -290,20 +290,30 @@ export default function App() {
 
   // ---- オフライン表示用の保存(設定でオンにした端末だけ) ----
   const syncing = useRef(false)
+  const [firstSaving, setFirstSaving] = useState(false) // この端末で初めて予定を保存している最中(終わるまで知らせ続ける)
   async function syncOffline(force: boolean) {
     const t = tokenRef.current
     if (!t || !tokenValid() || !prefsRef.current.offlineCache || offlineRef.current || syncing.current || !navigator.onLine) return
     // 前回の保存から30分たっていなければ、押したとき(force)以外は保存しない
     if (!force && savedInfo && Date.now() - new Date(savedInfo.savedAt).getTime() < 30 * 60_000) return
     syncing.current = true
+    const first = !savedInfo // この端末で初めての保存(入れ直した直後など)
+    if (first) setFirstSaving(true)
     try {
       const snap = await saveSnapshot(t, setOfflineSync)
-      setSavedInfo({ savedAt: snap.savedAt, count: snapshotCount(snap) })
+      const count = snapshotCount(snap)
+      setSavedInfo({ savedAt: snap.savedAt, count })
+      if (first) setNotice(`予定 ${count} 件をこの端末に保存しました。次からはログインする前でもすぐ表示されます`)
     } catch (e) {
-      if (!isNetworkError(e)) setOfflineSync(`オフライン用の保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`)
+      if (!isNetworkError(e)) {
+        const msg = `予定をこの端末に保存できませんでした: ${e instanceof Error ? e.message : String(e)}(次にログインしたときにもう一度保存します)`
+        setOfflineSync(msg)
+        setError(msg)
+      }
       return
     } finally {
       syncing.current = false
+      setFirstSaving(false)
     }
     setOfflineSync('')
   }
@@ -911,6 +921,11 @@ export default function App() {
         </div>
       )}
 
+      {firstSaving && (
+        <div className="banner">
+          予定をこの端末に保存しています…{offlineSync.replace(/^オフライン用に保存中…\s*/, '')}。保存が終わるまでアプリを閉じないでください。
+        </div>
+      )}
       {offlineSnap && (
         <div className={`banner ${online ? '' : 'warn-banner'}`}>
           {new Date(offlineSnap.savedAt).toLocaleString('ja-JP')} に保存した予定を表示しています(閲覧と検索のみ。追加・変更はログインしてから)。
