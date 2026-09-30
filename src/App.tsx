@@ -55,6 +55,9 @@ function savePref(key: string, value: unknown) {
   }
 }
 
+// 一度ログインを許可した端末の印(2回目から確認画面を出さない)
+const LOGGED_IN = 'webcalendar.loggedIn'
+
 const VIEWS: { kind: ViewKind; label: string }[] = [
   { kind: 'year', label: '年' },
   { kind: 'month', label: '月' },
@@ -161,24 +164,50 @@ export default function App() {
 
   async function login() {
     setError('')
+    // 一度許可した端末では、2回目から確認画面を出さない(写真日記と同じ。小さな画面が一瞬開いて自動で閉じる)
+    let silent = false
+    try {
+      silent = localStorage.getItem(LOGGED_IN) === '1'
+    } catch {
+      /* 保存できない環境では毎回確認画面 */
+    }
     try {
       // 閲覧は必須。書き込み(アプリ作成カレンダー / 既存カレンダーの予定)は任意の許可。
       // 既存カレンダーは、許可されても設定画面でカレンダーごとに許可するまで書き込まない
-      const t = await requestAccessToken(SCOPE_CALENDAR_READONLY, [SCOPE_APP_CREATED, SCOPE_EVENTS])
+      const t = await requestAccessToken(SCOPE_CALENDAR_READONLY, [SCOPE_APP_CREATED, SCOPE_EVENTS], { silent })
+      try {
+        localStorage.setItem(LOGGED_IN, '1')
+      } catch {
+        /* 無視 */
+      }
+      const fromSaved = !!offlineRef.current
+      // 保存した予定の表示から戻るとき: 先に表示を Google に切り替える
+      offlineRef.current = null
+      setOfflineSnap(null)
+      tokenRef.current = t
+      loginFresh.current = true // ログインしたら、予定の控えを取り直す
       setToken(t)
       setExpired(false)
-      // オフライン表示から戻るとき: 保存した一覧ではなく最新の一覧に差し替える
-      if (offlineRef.current) {
-        setOfflineSnap(null)
+      if (fromSaved) {
+        // 保存した一覧ではなく最新の一覧に差し替える
         const [list, cols] = await Promise.all([listCalendars(t), getColors(t)])
         setCalendars(list.items)
         setColors(cols as Colors)
         setReloadKey((k) => k + 1)
       }
     } catch (e) {
+      // 確認画面なしで失敗したときは、次は確認画面を出す
+      if (silent) {
+        try {
+          localStorage.removeItem(LOGGED_IN)
+        } catch {
+          /* 無視 */
+        }
+      }
       handleError(e)
     }
   }
+  const loginFresh = useRef(false)
 
   /**
    * ボタン操作の中から呼ぶ: ログインの残り時間が minMs 未満なら、確認画面なしでログインし直して新しいトークンを返す
@@ -205,6 +234,11 @@ export default function App() {
   }, [])
 
   async function logout() {
+    try {
+      localStorage.removeItem(LOGGED_IN) // ログアウトしたら、次は確認画面から
+    } catch {
+      /* 無視 */
+    }
     cloudStarted.current = false
     setCloudReady(false)
     if (token && online) await revokeToken(token).catch(() => {})
@@ -274,19 +308,22 @@ export default function App() {
     setOfflineSync('')
   }
 
-  // 保存済みの内容を読む。ネットにつながっていない状態で開いたら、そのままオフライン表示にする
+  // 保存済みの内容を読む。ログインする前は、前回保存した予定をすぐ表示する(写真日記と同じ。ネットが無くても見られる)
   useEffect(() => {
     if (!prefs.offlineCache) return setSavedInfo(null)
     loadSnapshot().then((snap) => {
       if (!snap) return
       setSavedInfo({ savedAt: snap.savedAt, count: snapshotCount(snap) })
-      if (!navigator.onLine && !tokenRef.current) void goOffline()
+      if (!tokenRef.current) void goOffline()
     })
   }, [prefs.offlineCache]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ログイン中・予定を変更したあとに保存(30分に1回まで)
+  // ログインしたとき・予定を変更したあとに保存(ログイン直後は必ず、それ以外は30分に1回まで)
   useEffect(() => {
-    if (token && calendars.length) void syncOffline(false)
+    if (!token || !calendars.length) return
+    const force = loginFresh.current
+    loginFresh.current = false
+    void syncOffline(force)
   }, [token, calendars.length, reloadKey, prefs.offlineCache]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // つながった/切れたの検知。つながったら、ログインが有効なら自動で最新に戻す
@@ -854,7 +891,13 @@ export default function App() {
           <button className="small ghost" onClick={refresh} title={offlineSnap ? 'ネットにつながっていれば最新に戻す' : 'Google から再読み込み'}>
             更新
           </button>
-          <button className="small ghost" onClick={logout}>ログアウト</button>
+          {token ? (
+            <button className="small ghost" onClick={logout}>ログアウト</button>
+          ) : (
+            <button className="small" onClick={() => void login()} title="予定を最新にして、追加・変更をするため">
+              Google にログイン
+            </button>
+          )}
           <button className="version-tag" title={`${versionDetail}(押すと設定で詳しく表示)`} onClick={() => setTab('settings')}>
             {versionLabel}
           </button>
@@ -869,15 +912,12 @@ export default function App() {
       )}
 
       {offlineSnap && (
-        <div className="banner warn-banner">
-          オフライン表示中: {new Date(offlineSnap.savedAt).toLocaleString('ja-JP')} に保存した予定です(閲覧と検索のみ。追加・変更はできません)。
+        <div className={`banner ${online ? '' : 'warn-banner'}`}>
+          {new Date(offlineSnap.savedAt).toLocaleString('ja-JP')} に保存した予定を表示しています(閲覧と検索のみ。追加・変更はログインしてから)。
           {online ? (
-            <>
-              {' '}ネットにつながっています。
-              <button className="small" onClick={refresh}>{tokenValid() ? '最新にする' : 'ログインして最新にする'}</button>
-            </>
+            <button className="small" onClick={refresh}>{tokenValid() ? '最新にする' : 'Google にログインして最新にする'}</button>
           ) : (
-            ' ネットにつながると自動で最新に戻ります(ログインが切れている場合はボタンが出ます)。'
+            ' ネットにつながっていません。つながると最新に戻せます。'
           )}
         </div>
       )}

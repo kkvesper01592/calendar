@@ -198,19 +198,18 @@ export default function SettingsPanel({ prefs, onChange, templates, onTemplatesC
       </section>
 
       <section className="card settings" id="offline">
-        <h2>オフライン表示</h2>
+        <h2>予定の保存(オフライン表示)</h2>
         <p className="hint small-text">
-          オンにすると、この端末(ブラウザ)に全カレンダーの予定(過去〜2年先)を保存し、ネットがつながらないときも予定の閲覧と検索ができます。
-          追加・変更はネットにつながってから行います。つながると自動で最新に戻ります。
-          設定は端末ごとです。保存した予定は暗号化されていないため、他の人も使う端末ではオンにしないでください。オフにすると端末から消します。
+          ログインしたときに、全カレンダーの予定(過去〜2年先)をこの端末(ブラウザ)に保存します。次にアプリを開いたときは、ログインする前でも保存した予定をすぐ表示し、ネットがつながらないときも閲覧と検索ができます。
+          追加・変更はログインしてから行います。保存した予定は暗号化されていないため、他の人も使う端末ではオフにしてください。オフにすると端末から消します。
         </p>
         <label className="check">
-          <input type="checkbox" checked={offline.enabled} onChange={(e) => offline.onToggle(e.target.checked)} /> この端末にオフライン用の予定を保存する
+          <input type="checkbox" checked={offline.enabled} onChange={(e) => offline.onToggle(e.target.checked)} /> この端末に予定を保存する
         </label>
         {offline.enabled && (
           <p className="small-text">
             {offline.savedInfo
-              ? `保存済み: ${new Date(offline.savedInfo.savedAt).toLocaleString('ja-JP')}(予定 ${offline.savedInfo.count} 件)。ログイン中は、ログインしたとき・「更新」を押したとき・予定を変更したあと(30分に1回まで)に保存し直します。`
+              ? `保存済み: ${new Date(offline.savedInfo.savedAt).toLocaleString('ja-JP')}(予定 ${offline.savedInfo.count} 件)。ログインしたとき・「更新」を押したとき・予定を変更したあと(30分に1回まで)に保存し直します。`
               : 'まだ保存されていません。'}{' '}
             {offline.onSaveNow && (
               <button className="small ghost" onClick={offline.onSaveNow}>

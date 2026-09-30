@@ -11,7 +11,7 @@ export interface Prefs {
   holidayWeekdays: number[] // 休日として赤く表示する曜日
   dayColors: Record<string, string> // 日付マスの背景色 YYYY-MM-DD -> 色
   editableCalendars: string[] // 編集を許可した既存カレンダー(最初は無し)
-  offlineCache: boolean // この端末にオフライン表示用の予定を保存する(最初はオフ)
+  offlineCache: boolean // ログインしたときに予定をこの端末に保存し、ログイン前・オフラインでも表示する(最初からオン)
   periodicBackupMin: number // 開いている間の定期バックアップの間隔(分)。0 = しない
 }
 
@@ -25,7 +25,7 @@ export const DEFAULT_PREFS: Prefs = {
   holidayWeekdays: [0],
   dayColors: {},
   editableCalendars: [],
-  offlineCache: false,
+  offlineCache: true,
   periodicBackupMin: 30,
 }
 
@@ -45,7 +45,14 @@ const KEY = 'webcalendar.prefs'
 
 export function loadPrefs(): Prefs {
   try {
-    return { ...DEFAULT_PREFS, ...(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Prefs>) }
+    const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Prefs> & { offlineCacheV2?: boolean }
+    // ver 1.6.0 から予定の保存は最初からオン(写真日記と同じ)。以前の既定のオフは一度だけオンに切り替える
+    if (!saved.offlineCacheV2) {
+      saved.offlineCache = true
+      saved.offlineCacheV2 = true
+      localStorage.setItem(KEY, JSON.stringify(saved))
+    }
+    return { ...DEFAULT_PREFS, ...saved }
   } catch {
     return DEFAULT_PREFS
   }
