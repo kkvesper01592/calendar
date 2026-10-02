@@ -36,6 +36,7 @@ import {
   type DeviceKind,
 } from './settings/cloudSettings'
 import type { Template } from './editing/templates'
+import { applyLocalSettings, readSettingsFromFolder, settingsWereMissing, writeSettingsToFolder } from './settings/settingsBackup'
 import {
   clearSnapshot,
   isNetworkError,
@@ -338,11 +339,52 @@ export default function App() {
       if (!dir) return setFolderCopy('保存先フォルダが未設定のため、フォルダには控えを置いていません(「バックアップ」画面で選べます)')
       if ((await permission(dir)) !== 'granted') return setFolderCopy('保存先フォルダへの書き込みの許可を待っているため、フォルダの控えは前回のままです')
       await writeSnapshotToFolder(dir, snap)
-      setFolderCopy(`保存先フォルダ「${dir.name}\最新」にも控えを保存しました(${new Date().toLocaleString('ja-JP')})`)
+      await saveSettingsCopy(dir)
+      setFolderCopy(`保存先フォルダ「${dir.name}\最新」にも予定と設定の控えを保存しました(${new Date().toLocaleString('ja-JP')})`)
     } catch (e) {
       setFolderCopy(`保存先フォルダに控えを保存できませんでした: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
+
+  /**
+   * 起動した時点でこの端末の設定が無かったとき: 保存先フォルダの設定の控えを書き戻して再読み込みする。
+   * 戻したら true(この後は再読み込みされる)。1回の起動で1度だけ
+   */
+  const settingsRestored = useRef(false)
+  const cloudReadyRef = useRef(false)
+  /**
+   * 設定の控えを書いてよいか。データが消えた直後は既定の設定になっているので、
+   * フォルダから戻すか、Google に保存した設定と合わせ終わるまでは、フォルダの良い控えを上書きしない
+   */
+  const mayWriteSettings = () => !settingsWereMissing || settingsRestored.current || cloudReadyRef.current
+  const saveSettingsCopy = async (dir: FileSystemDirectoryHandle) => {
+    if (mayWriteSettings()) await writeSettingsToFolder(dir)
+  }
+  async function restoreSettingsFrom(dir: FileSystemDirectoryHandle): Promise<boolean> {
+    if (!settingsWereMissing || settingsRestored.current) return false
+    settingsRestored.current = true
+    const data = await readSettingsFromFolder(dir)
+    if (!data || !applyLocalSettings(data)) return false
+    try {
+      sessionStorage.setItem('webcalendar.restoredNotice', `保存先フォルダの控えから、予定と設定を戻しました(設定は ${new Date(data.savedAt).toLocaleString('ja-JP')} 時点)`)
+    } catch {
+      /* 無視 */
+    }
+    window.location.reload() // 戻した設定で画面を作り直す
+    return true
+  }
+  // 設定を戻して再読み込みした後のお知らせ
+  useEffect(() => {
+    try {
+      const msg = sessionStorage.getItem('webcalendar.restoredNotice')
+      if (msg) {
+        sessionStorage.removeItem('webcalendar.restoredNotice')
+        setNotice(msg)
+      }
+    } catch {
+      /* 無視 */
+    }
+  }, [])
 
   /** ブラウザの予定が消えていたとき: 保存先フォルダの控えから戻す(ボタン操作の中で呼ぶ。フォルダの許可・選択が必要なため) */
   async function restoreFromFolder() {
@@ -360,6 +402,7 @@ export default function App() {
       if (!snap) throw new Error(`「${dir.name}」の中に「最新\表示用の予定.json」が見つかりませんでした。バックアップの保存先フォルダを選んでください`)
       await putSnapshot(snap)
       await setAutoDir(dir) // 保存先フォルダも覚え直す(定期バックアップがまた動くように)
+      if (await restoreSettingsFrom(dir)) return
       setSavedInfo({ savedAt: snap.savedAt, count: snapshotCount(snap) })
       offlineRef.current = null
       await goOffline()
@@ -375,16 +418,19 @@ export default function App() {
   useEffect(() => {
     if (!prefs.offlineCache) return setSavedInfo(null)
     loadSnapshot().then(async (snap) => {
-      if (!snap && canPickFolder()) {
+      if ((!snap || settingsWereMissing) && canPickFolder()) {
         try {
           const dir = await getAutoDir()
           if (dir && (await permission(dir)) === 'granted') {
-            const fromFolder = await readSnapshotFromFolder(dir)
-            if (fromFolder) {
-              await putSnapshot(fromFolder)
-              snap = fromFolder
-              setNotice('この端末の予定が消えていたため、保存先フォルダの控えから戻しました')
+            if (!snap) {
+              const fromFolder = await readSnapshotFromFolder(dir)
+              if (fromFolder) {
+                await putSnapshot(fromFolder)
+                snap = fromFolder
+                setNotice('この端末の予定が消えていたため、保存先フォルダの控えから戻しました')
+              }
             }
+            if (await restoreSettingsFrom(dir)) return
           }
         } catch {
           /* 戻せなければ、ログイン画面の「バックアップから予定を戻す」で */
@@ -525,6 +571,7 @@ export default function App() {
         return
       }
       lastSynced.current = subsetOf(next, templates)
+      cloudReadyRef.current = true
       setCloudReady(true)
       if (needPush) void pushCloud()
     })()
@@ -596,6 +643,7 @@ export default function App() {
     setPeriodic((p) => ({ ...p, status: '保存中…' }))
     try {
       const last = await runLatestBackupTo(dir, t)
+      await saveSettingsCopy(dir).catch(() => {})
       setPeriodic({ status: '', last })
     } catch (e) {
       setPeriodic((p) => ({ ...p, status: `失敗しました: ${e instanceof Error ? e.message : String(e)}(次の回にもう一度行います)` }))
@@ -673,6 +721,21 @@ export default function App() {
       return ends.length ? new Date(Math.max(...ends.map((d) => d.getTime()))) : undefined
     },
   })
+  // 設定を変えたら、数秒後に保存先フォルダの設定の控えも書き直す(PC。許可があるときだけ)
+  const localSettingsKey = JSON.stringify([prefs, editing.templates, [...hidden], showTime, showRokuyo, view])
+  useEffect(() => {
+    if (!canPickFolder()) return
+    const timer = window.setTimeout(async () => {
+      try {
+        const dir = await getAutoDir()
+        if (dir && (await permission(dir)) === 'granted') await saveSettingsCopy(dir)
+      } catch {
+        /* 次の機会に */
+      }
+    }, 3000)
+    return () => window.clearTimeout(timer)
+  }, [localSettingsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // 設定・テンプレート・既存カレンダーの編集の許可を変えたら、数秒後に Google にも保存
   templatesRef.current = editing.templates
   const syncedSubset = subsetOf(prefs, editing.templates)
@@ -730,11 +793,11 @@ export default function App() {
         {!savedInfo && prefs.offlineCache && canPickFolder() && (
           <>
             <button className="ghost" onClick={() => void restoreFromFolder()}>
-              バックアップから予定を戻す
+              バックアップから予定と設定を戻す
             </button>
             <p className="muted small-text">
               この端末に保存した予定が見つかりません(アプリの入れ直しなどで消えた可能性があります)。
-              バックアップの保存先フォルダに控えがあれば、ログインしなくても戻せます。
+              バックアップの保存先フォルダに控えがあれば、ログインしなくても予定と設定を戻せます。
             </p>
           </>
         )}
