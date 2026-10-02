@@ -202,6 +202,7 @@ export default function SettingsPanel({ prefs, onChange, templates, onTemplatesC
         <p className="hint small-text">
           ログインしたときに、全カレンダーの予定(過去〜2年先)をこの端末(ブラウザ)に保存します。次にアプリを開いたときは、ログインする前でも保存した予定をすぐ表示し、ネットがつながらないときも閲覧と検索ができます。
           追加・変更はログインしてから行います。保存した予定は暗号化されていないため、他の人も使う端末ではオフにしてください。オフにすると端末から消します。
+          PC では、同じ内容をバックアップの保存先フォルダの「最新\表示用の予定.json」にも保存します。アプリの入れ直しなどでこの端末の予定が消えても、起動画面の「バックアップから予定を戻す」で戻せます(フォルダの許可が残っていれば自動で戻ります)。
         </p>
         <label className="check">
           <input type="checkbox" checked={offline.enabled} onChange={(e) => offline.onToggle(e.target.checked)} /> この端末に予定を保存する

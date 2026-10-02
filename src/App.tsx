@@ -13,8 +13,8 @@ import { searchEvents } from './calendar/searchIndex'
 import { HoverCard, useHoverPreview } from './calendar/HoverPreview'
 import BackupPanel from './backup/BackupPanel'
 import ChangeHistory from './backup/ChangeHistory'
-import { getAutoDir, isDueToday, lastLatestBackup, permission, requestPermission, runBackupTo, runLatestBackupTo } from './backup/autoBackup'
-import { canPickFolder } from './backup/saveToFolder'
+import { getAutoDir, setAutoDir, isDueToday, lastLatestBackup, permission, requestPermission, runBackupTo, runLatestBackupTo } from './backup/autoBackup'
+import { canPickFolder, pickFolder } from './backup/saveToFolder'
 import { eventRange, isAllDay, sameDay, shiftCursor, viewRange, viewTitle, weekDaysOf, ymd, type ViewKind } from './lib/dates'
 import { canEditExisting, canWrite, isMemoCalendar, isSettingsCalendar, setEditableCalendars } from './google/calendarWriteApi'
 import { applyPrefs, loadPrefs, PrefsContext, savePrefs, type Prefs } from './settings/prefs'
@@ -36,7 +36,17 @@ import {
   type DeviceKind,
 } from './settings/cloudSettings'
 import type { Template } from './editing/templates'
-import { clearSnapshot, isNetworkError, loadSnapshot, saveSnapshot, snapshotCount, type OfflineSnapshot } from './offline/offlineStore'
+import {
+  clearSnapshot,
+  isNetworkError,
+  loadSnapshot,
+  putSnapshot,
+  readSnapshotFromFolder,
+  saveSnapshot,
+  snapshotCount,
+  writeSnapshotToFolder,
+  type OfflineSnapshot,
+} from './offline/offlineStore'
 
 // 表示設定(端末ごと)。保存できない環境でも既定値で動く
 function loadPref<T>(key: string, fallback: T): T {
@@ -303,6 +313,7 @@ export default function App() {
       const snap = await saveSnapshot(t, setOfflineSync)
       const count = snapshotCount(snap)
       setSavedInfo({ savedAt: snap.savedAt, count })
+      void copyToFolder(snap)
       if (first) setNotice(`予定 ${count} 件をこの端末に保存しました。次からはログインする前でもすぐ表示されます`)
     } catch (e) {
       if (!isNetworkError(e)) {
@@ -318,10 +329,67 @@ export default function App() {
     setOfflineSync('')
   }
 
+  // ---- 2つ目の保存場所: PC の保存先フォルダの「最新\表示用の予定.json」 ----
+  const [folderCopy, setFolderCopy] = useState('') // 保存先フォルダへの控えの状態
+  async function copyToFolder(snap: OfflineSnapshot) {
+    if (!canPickFolder()) return
+    try {
+      const dir = await getAutoDir()
+      if (!dir) return setFolderCopy('保存先フォルダが未設定のため、フォルダには控えを置いていません(「バックアップ」画面で選べます)')
+      if ((await permission(dir)) !== 'granted') return setFolderCopy('保存先フォルダへの書き込みの許可を待っているため、フォルダの控えは前回のままです')
+      await writeSnapshotToFolder(dir, snap)
+      setFolderCopy(`保存先フォルダ「${dir.name}\最新」にも控えを保存しました(${new Date().toLocaleString('ja-JP')})`)
+    } catch (e) {
+      setFolderCopy(`保存先フォルダに控えを保存できませんでした: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  /** ブラウザの予定が消えていたとき: 保存先フォルダの控えから戻す(ボタン操作の中で呼ぶ。フォルダの許可・選択が必要なため) */
+  async function restoreFromFolder() {
+    setError('')
+    try {
+      let dir = await getAutoDir()
+      if (!dir) {
+        setNotice('バックアップの保存先フォルダ(「最新」フォルダがある場所)を選んでください')
+        dir = await pickFolder()
+      }
+      if ((await permission(dir)) !== 'granted' && !(await requestPermission(dir))) {
+        throw new Error('保存先フォルダの読み取りが許可されませんでした')
+      }
+      const snap = await readSnapshotFromFolder(dir)
+      if (!snap) throw new Error(`「${dir.name}」の中に「最新\表示用の予定.json」が見つかりませんでした。バックアップの保存先フォルダを選んでください`)
+      await putSnapshot(snap)
+      await setAutoDir(dir) // 保存先フォルダも覚え直す(定期バックアップがまた動くように)
+      setSavedInfo({ savedAt: snap.savedAt, count: snapshotCount(snap) })
+      offlineRef.current = null
+      await goOffline()
+      setNotice(`保存先フォルダの控えから、予定 ${snapshotCount(snap)} 件を戻しました(${new Date(snap.savedAt).toLocaleString('ja-JP')} 時点)`)
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') return
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   // 保存済みの内容を読む。ログインする前は、前回保存した予定をすぐ表示する(写真日記と同じ。ネットが無くても見られる)
+  // ブラウザの予定が消えていても、保存先フォルダの許可が残っていれば、フォルダの控えから自動で戻す
   useEffect(() => {
     if (!prefs.offlineCache) return setSavedInfo(null)
-    loadSnapshot().then((snap) => {
+    loadSnapshot().then(async (snap) => {
+      if (!snap && canPickFolder()) {
+        try {
+          const dir = await getAutoDir()
+          if (dir && (await permission(dir)) === 'granted') {
+            const fromFolder = await readSnapshotFromFolder(dir)
+            if (fromFolder) {
+              await putSnapshot(fromFolder)
+              snap = fromFolder
+              setNotice('この端末の予定が消えていたため、保存先フォルダの控えから戻しました')
+            }
+          }
+        } catch {
+          /* 戻せなければ、ログイン画面の「バックアップから予定を戻す」で */
+        }
+      }
       if (!snap) return
       setSavedInfo({ savedAt: snap.savedAt, count: snapshotCount(snap) })
       if (!tokenRef.current) void goOffline()
@@ -659,6 +727,17 @@ export default function App() {
         <h1>WebCalendar</h1>
         <p className="muted">Google カレンダーの予定を表示・編集します</p>
         <button onClick={login}>Google にログイン</button>
+        {!savedInfo && prefs.offlineCache && canPickFolder() && (
+          <>
+            <button className="ghost" onClick={() => void restoreFromFolder()}>
+              バックアップから予定を戻す
+            </button>
+            <p className="muted small-text">
+              この端末に保存した予定が見つかりません(アプリの入れ直しなどで消えた可能性があります)。
+              バックアップの保存先フォルダに控えがあれば、ログインしなくても戻せます。
+            </p>
+          </>
+        )}
         {savedInfo && (
           <>
             <button className="ghost" onClick={() => void goOffline()}>
@@ -752,7 +831,7 @@ export default function App() {
             enabled: prefs.offlineCache,
             onToggle: setOfflineCache,
             savedInfo,
-            status: offlineSync,
+            status: [offlineSync, folderCopy].filter(Boolean).join(' / '),
             onSaveNow: liveToken ? () => void syncOffline(true) : undefined,
           }}
         />
