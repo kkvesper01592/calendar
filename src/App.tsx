@@ -700,8 +700,17 @@ export default function App() {
   const liveToken = offlineSnap ? null : token
   const { byDay, loading } = useRangeEvents(liveToken, offlineSnap, calendars, hidden, colors, start, end, reloadKey, handleError)
   const selectedEvents = byDay.get(ymd(selected)) ?? []
+  // タイトルの入力候補の元: 保存した予定の控え(保存し直されたら読み直す)
+  const [titleSnap, setTitleSnap] = useState<OfflineSnapshot | null>(null)
+  useEffect(() => {
+    if (offlineSnap) return setTitleSnap(offlineSnap)
+    if (!savedInfo) return
+    loadSnapshot().then((snap) => setTitleSnap(snap ?? null))
+  }, [savedInfo?.savedAt, offlineSnap]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const editing = useEditing({
     token: liveToken,
+    titleSnap,
     calendars,
     colors,
     onChanged: () => setReloadKey((k) => k + 1),

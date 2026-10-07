@@ -5,6 +5,8 @@ import { addDays, eventRange, hhmm, htmlToText, isAllDay, localIso, ymd } from '
 import { isMapUrl, mapSearchUrl, eventMapUrl, parsePastedPlace } from '../lib/maps'
 import { describeTemplate, templateFromEvent, templateToEvent, type Template, type TemplateTimeMode } from './templates'
 import PastSearch from './PastSearch'
+import TitleInput from './TitleInput'
+import type { TitleEntry } from '../lib/titleIndex'
 import type { DisplayEvent } from '../calendar/useRangeEvents'
 import { isAppCalendar } from '../google/calendarWriteApi'
 import { buildRecurrence, defaultRepeat, describeRepeat, parseRecurrence, type RepeatForm, type RepeatKind } from './recurrence'
@@ -28,6 +30,7 @@ interface Props {
   onTimeMode?: (m: TemplateTimeMode) => void
   suggestStart?: (date: Date) => Date | undefined // その日の最後の予定の終了時刻
   searchPast?: (query: string) => Promise<DisplayEvent[]> // 過去の予定の検索
+  titleIndex?: TitleEntry[] // タイトルの入力候補(過去に入力したタイトル)
 }
 
 const WD = ['日', '月', '火', '水', '木', '金', '土']
@@ -145,7 +148,7 @@ function changedFields(orig: CalendarEvent, next: Partial<CalendarEvent>, allDay
 }
 
 /** 予定の作成・編集フォーム */
-export default function EventEditor({ target, calendars, lockedCalendars = [], colors, onSave, onCancel, templates = [], timeMode = 'template', onTimeMode, suggestStart, searchPast }: Props) {
+export default function EventEditor({ target, calendars, lockedCalendars = [], colors, onSave, onCancel, templates = [], timeMode = 'template', onTimeMode, suggestStart, searchPast, titleIndex = [] }: Props) {
   const [templateId, setTemplateId] = useState('')
   const [s, setS] = useState(() => initialState(target, calendars))
   const [saving, setSaving] = useState(false)
@@ -317,7 +320,7 @@ export default function EventEditor({ target, calendars, lockedCalendars = [], c
 
         <label className="field">
           <span>タイトル</span>
-          <input autoFocus value={s.title} onChange={(e) => set('title', e.target.value)} placeholder="(タイトルなし)" />
+          <TitleInput autoFocus value={s.title} onChange={(v) => set('title', v)} index={titleIndex} placeholder="(タイトルなし)" />
         </label>
 
         {target.mode === 'create' && (

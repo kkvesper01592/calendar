@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { AccessToken } from '../google/auth'
 import { getEvent, type CalendarEvent, type CalendarListEntry } from '../google/calendarReadApi'
 import { canEditExisting, canWrite, canWriteCalendar, createAppCalendar, createEvent, deleteEvent, isAppCalendar, isEditableRole, isMemoCalendar, moveEvent, undoChange, updateEvent } from '../google/calendarWriteApi'
@@ -9,6 +9,8 @@ import type { JournalEntry } from '../backup/journal'
 import { MARK_MEMO, MARK_TEST } from '../config'
 import type { Colors, DisplayEvent } from '../calendar/useRangeEvents'
 import { addDays, ymd } from '../lib/dates'
+import { buildTitleIndex } from '../lib/titleIndex'
+import type { OfflineSnapshot } from '../offline/offlineStore'
 import EventEditor, { type EditorTarget } from './EventEditor'
 import MemoEditor from './MemoEditor'
 import ConfirmDialog, { type Choice } from './ConfirmDialog'
@@ -28,12 +30,13 @@ interface Options {
   onOpenEditSettings: () => void // 設定の「既存カレンダーの編集」を開く
   // ボタン操作の中から呼ぶ: ログインの残り時間が少なければログインし直して、使えるトークンを返す
   ensureToken: (minMs?: number) => Promise<AccessToken>
+  titleSnap?: OfflineSnapshot | null // タイトルの入力候補を作るための、保存した予定の控え
 }
 
 type Confirm = { title: string; message?: string; choices: Choice[] }
 
 /** 予定の追加・編集・削除と日付メモの画面の流れをまとめる */
-export function useEditing({ token, calendars, colors, onChanged, onCalendarsChanged, onError, onNotice, suggestStart, searchPast, onOpenEditSettings, ensureToken }: Options) {
+export function useEditing({ token, calendars, colors, onChanged, onCalendarsChanged, onError, onNotice, suggestStart, searchPast, onOpenEditSettings, ensureToken, titleSnap }: Options) {
   const [editor, setEditor] = useState<EditorTarget | null>(null)
   const [memo, setMemo] = useState<{ date: Date; existing?: DisplayEvent } | null>(null)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
@@ -52,6 +55,9 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
     setTemplatesState(list)
     saveTemplates(list)
   }
+
+  // タイトルの入力候補: 保存した予定の控え(全期間)とテンプレートの名前
+  const titleIndex = useMemo(() => buildTitleIndex(titleSnap, templates.map((t) => t.title)), [titleSnap, templates])
 
   const writable = canWrite(token)
   // 書き込める(予定用の)カレンダー: アプリ作成のテスト用 + 設定で編集を許可した既存カレンダー
@@ -359,6 +365,7 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
           lockedCalendars={lockedCalendars}
           colors={colors}
           templates={templates}
+          titleIndex={titleIndex}
           timeMode={timeMode}
           onTimeMode={setTimeMode}
           suggestStart={suggestStart}

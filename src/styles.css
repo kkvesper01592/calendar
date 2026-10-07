@@ -506,3 +506,15 @@ mark.hit { background: #ffe066; color: #1a1a1a; border-radius: 2px; padding: 0 1
   .search-line { padding-left: 0; }
 }
 .small-heading { font-size: calc(14px * var(--fs)); margin: 14px 0 4px; }
+
+/* 予定のタイトルの入力候補(過去に入力したタイトル) */
+.title-input { position: relative; }
+.title-input > input { width: 100%; box-sizing: border-box; }
+.title-suggest {
+  position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 30; list-style: none; margin: 0; padding: 4px 0;
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 18px #0004; max-height: 280px; overflow-y: auto;
+}
+.title-suggest li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 10px; cursor: pointer; font-size: calc(14px * var(--fs)); }
+.title-suggest li.active, .title-suggest li:hover { background: var(--selected); }
+.title-suggest-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.title-suggest-meta { flex: none; color: var(--muted); font-size: calc(11px * var(--fs)); align-self: center; }
