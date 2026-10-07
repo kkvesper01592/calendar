@@ -76,11 +76,9 @@ export default function TitleInput({ value, onChange, index, placeholder, autoFo
               }}
               onMouseEnter={() => setActive(i)}
             >
+              {/* タイトルの入力なので、候補もタイトルだけを出す */}
               <span className="title-suggest-text">
                 <Highlight text={t.title} words={searchWords(value)} />
-              </span>
-              <span className="title-suggest-meta">
-                {t.last === '9999' ? 'テンプレート' : `${t.count}回・最後 ${t.last.replace(/-/g, '/')}`}
               </span>
             </li>
           ))}
