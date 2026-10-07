@@ -1,6 +1,6 @@
 // 予定のタイトルの入力候補(過去に入力したタイトル)。
 // この端末に保存した予定の控え(全期間)とテンプレートから集める。比べ方は検索と同じ(全角/半角・大文字/小文字を区別しない)
-import type { CalendarListEntry } from '../google/calendarReadApi'
+import type { CalendarEvent, CalendarListEntry } from '../google/calendarReadApi'
 import type { OfflineSnapshot } from '../offline/offlineStore'
 import { normalizeText } from './highlight'
 
@@ -17,7 +17,24 @@ const skipCalendar = (c: CalendarListEntry) => {
   return d.includes('[WebCalendar:memo]') || d.includes('[WebCalendar:settings]') || /holiday@group\.v\.calendar\.google\.com$/.test(c.id)
 }
 
-/** 予定の控えとテンプレートから、タイトルの一覧を作る */
+/**
+ * タイトルとして入力されたものではなく、本文(メモ)から自動で作られたタイトルか。
+ * 仕事メモの取り込みで、見出しの無い日などは本文の1行目から「メモ: …」というタイトルを作っている。
+ * 候補に混ぜると表記揺れのもとになるので外す
+ */
+const isFromBody = (ev: CalendarEvent) => {
+  if (ev.extendedProperties?.private?.importSource !== 'textmemo') return false
+  const title = (ev.summary ?? '').trim()
+  if (title.startsWith('メモ: ')) return true
+  // 見出し(住所:/名前:/電話: の欄)の名前も住所も空だったときは、本文の最初の行(30文字まで)をタイトルにしている。
+  // 「住所:」などの欄の無い1行だけの見出しは、見出しそのものがタイトルなので外さない
+  const desc = ev.description ?? ''
+  if (!/^\s*(住所|名前|電話)\s*[:：]/m.test(desc)) return false
+  const firstLine = desc.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
+  return title === firstLine.slice(0, 30)
+}
+
+/** 予定の控えとテンプレートから、タイトルの一覧を作る(タイトルとして入力されたものだけ) */
 export function buildTitleIndex(snap: OfflineSnapshot | null | undefined, templateTitles: string[] = []): TitleEntry[] {
   const map = new Map<string, TitleEntry>()
   const add = (title: string | undefined, day: string) => {
@@ -32,7 +49,10 @@ export function buildTitleIndex(snap: OfflineSnapshot | null | undefined, templa
   if (snap) {
     for (const cal of snap.calendars) {
       if (skipCalendar(cal)) continue
-      for (const ev of snap.events[cal.id] ?? []) add(ev.summary, (ev.start?.date ?? ev.start?.dateTime ?? '').slice(0, 10))
+      for (const ev of snap.events[cal.id] ?? []) {
+        if (isFromBody(ev)) continue
+        add(ev.summary, (ev.start?.date ?? ev.start?.dateTime ?? '').slice(0, 10))
+      }
     }
   }
   for (const t of templateTitles) add(t, '9999') // テンプレートの名前は上の方に出す
