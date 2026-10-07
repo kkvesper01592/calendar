@@ -4,6 +4,8 @@ import type { Colors } from '../calendar/useRangeEvents'
 import { htmlToText } from '../lib/dates'
 import { isMapUrl, mapSearchUrl, parsePastedPlace } from '../lib/maps'
 import { describeTemplate, newTemplateId, type Template } from './templates'
+import TitleInput from './TitleInput'
+import type { TitleEntry } from '../lib/titleIndex'
 
 const REMINDERS: { min: number; label: string }[] = [
   { min: 0, label: '予定の時刻' },
@@ -26,12 +28,13 @@ interface Props {
   isNew?: boolean
   calendars: CalendarListEntry[] // 保存先に選べるカレンダー
   colors: Colors | null
+  titleIndex?: TitleEntry[] // 名前の入力候補(過去に入力したタイトル)
   onSave: (t: Template) => void
   onCancel: () => void
 }
 
 /** テンプレート(よく使う予定のひな形)の新規作成・編集 */
-export default function TemplateEditor({ template, isNew = !template, calendars, colors, onSave, onCancel }: Props) {
+export default function TemplateEditor({ template, isNew = !template, calendars, colors, titleIndex = [], onSave, onCancel }: Props) {
   const t = template
   const [title, setTitle] = useState(t?.title ?? '')
   const [allDay, setAllDay] = useState(t?.allDay ?? false)
@@ -99,7 +102,7 @@ export default function TemplateEditor({ template, isNew = !template, calendars,
 
         <label className="field">
           <span>名前(予定のタイトルになります)</span>
-          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例: 早番、定例会議" />
+          <TitleInput autoFocus value={title} onChange={setTitle} index={titleIndex} placeholder="例: 早番、定例会議" />
         </label>
 
         <label className="check">

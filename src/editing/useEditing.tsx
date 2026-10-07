@@ -445,6 +445,7 @@ export function useEditing({ token, calendars, colors, onChanged, onCalendarsCha
     startMemo,
     createCalendar,
     templates,
+    titleIndex, // タイトルの入力候補(テンプレートの編集画面でも使う)
     setTemplates,
     saveAsTemplate,
     startQuickAdd,

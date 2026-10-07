@@ -893,6 +893,7 @@ export default function App() {
           prefs={prefs}
           onChange={setPrefs}
           templates={editing.templates}
+          titleIndex={editing.titleIndex}
           onTemplatesChange={editing.setTemplates}
           calendars={calendars}
           colors={colors}

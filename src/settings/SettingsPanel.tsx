@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ACCENTS, FONT_LABELS, type Prefs } from './prefs'
 import { describeTemplate, newTemplateId, type Template } from '../editing/templates'
 import TemplateEditor from '../editing/TemplateEditor'
+import type { TitleEntry } from '../lib/titleIndex'
 import type { CalendarListEntry } from '../google/calendarReadApi'
 import type { Colors } from '../calendar/useRangeEvents'
 import { isAppCalendar, isEditableRole, isMemoCalendar } from '../google/calendarWriteApi'
@@ -13,6 +14,7 @@ interface Props {
   prefs: Prefs
   onChange: (p: Prefs) => void
   templates: Template[]
+  titleIndex: TitleEntry[] // テンプレートの名前の入力候補(過去に入力したタイトル)
   onTemplatesChange: (t: Template[]) => void
   calendars: CalendarListEntry[]
   colors: Colors | null
@@ -29,7 +31,7 @@ interface Props {
 }
 
 /** 見た目・週・テンプレートの設定 */
-export default function SettingsPanel({ prefs, onChange, templates, onTemplatesChange, calendars, colors, canEditExisting, onOpenImport, offline, cloudStatus }: Props) {
+export default function SettingsPanel({ prefs, onChange, templates, titleIndex, onTemplatesChange, calendars, colors, canEditExisting, onOpenImport, offline, cloudStatus }: Props) {
   const existing = calendars.filter((c) => !isAppCalendar(c))
   const appMade = calendars.filter(isAppCalendar)
   const set = <K extends keyof Prefs>(k: K, v: Prefs[K]) => onChange({ ...prefs, [k]: v })
@@ -261,6 +263,7 @@ export default function SettingsPanel({ prefs, onChange, templates, onTemplatesC
             isNew={tplEditing === 'new' || !templates.some((x) => x.id === tplEditing.id)}
             calendars={tplCalendars}
             colors={colors}
+            titleIndex={titleIndex}
             onSave={saveTpl}
             onCancel={() => setTplEditing(null)}
           />
