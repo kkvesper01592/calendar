@@ -90,6 +90,7 @@ export default function App() {
   const [showTime, setShowTime] = useState(() => loadPref('showTime', true))
   // 「カレンダーと表示設定」の欄を開いているか(前回の状態を覚える。初めては広い画面なら開く)
   const [sideOpen, setSideOpen] = useState<boolean | null>(() => loadPref<boolean | null>('sideOpen', null))
+  const swipeStart = useRef<{ x: number; y: number; at: number } | null>(null) // スマホの月表示のスワイプ
   const [view, setView] = useState<ViewKind>(() => loadPref<ViewKind>('view', 'month'))
   const [cursor, setCursor] = useState(() => new Date())
   const [selected, setSelected] = useState(() => new Date())
@@ -961,7 +962,27 @@ export default function App() {
   } else {
     let content
     if (view === 'month') {
+      // スマホ表示のときだけ、左右のスワイプで月を移る(縦のスクロールの邪魔をしないよう、横に大きく動いたときだけ)
+      const swipeHandlers = chipsClickable
+        ? {}
+        : {
+            onTouchStart: (e: React.TouchEvent) => {
+              const t = e.touches[0]
+              swipeStart.current = e.touches.length === 1 ? { x: t.clientX, y: t.clientY, at: Date.now() } : null
+            },
+            onTouchEnd: (e: React.TouchEvent) => {
+              const st = swipeStart.current
+              swipeStart.current = null
+              if (!st) return
+              const t = e.changedTouches[0]
+              const dx = t.clientX - st.x
+              const dy = t.clientY - st.y
+              if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - st.at > 800) return
+              setCursor(shiftCursor('month', cursor, dx < 0 ? 1 : -1, weekOpts)) // 左へ払うと次の月、右へ払うと前の月
+            },
+          }
       content = (
+        <div className={chipsClickable ? 'month-wrap' : 'month-wrap swipe'} {...swipeHandlers}>
         <MonthView
           year={cursor.getFullYear()}
           month0={cursor.getMonth()}
@@ -977,6 +998,7 @@ export default function App() {
           onCreate={editing.canCreate && !editing.stamp ? (d) => editing.startCreate(d) : undefined}
           onQuickAdd={editing.canCreate ? editing.startQuickAdd : undefined}
         />
+        </div>
       )
     } else if (view === 'year') {
       content = (
@@ -1026,6 +1048,10 @@ export default function App() {
           <h1 className="title">{viewTitle(view, cursor, weekOpts)}</h1>
           <button className="icon" onClick={() => setCursor(shiftCursor(view, cursor, 1, weekOpts))} aria-label="次へ">›</button>
           <button className="small ghost" onClick={goToday}>今日</button>
+          {/* スマホでは上部の行を減らすため、ヴァージョンをここに出す(右側のものは隠す) */}
+          <button className="version-tag mobile-only" title={versionDetail} onClick={() => setTab('settings')}>
+            {versionLabel}
+          </button>
           {loading && <span className="muted small-text">読み込み中…</span>}
         </div>
         <div className="seg" role="tablist" aria-label="表示の切り替え">
@@ -1070,7 +1096,7 @@ export default function App() {
               Google にログイン
             </button>
           )}
-          <button className="version-tag" title={`${versionDetail}(押すと設定で詳しく表示)`} onClick={() => setTab('settings')}>
+          <button className="version-tag desktop-only" title={`${versionDetail}(押すと設定で詳しく表示)`} onClick={() => setTab('settings')}>
             {versionLabel}
           </button>
         </div>

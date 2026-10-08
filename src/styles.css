@@ -98,6 +98,8 @@ a { color: var(--accent); }
 .topbar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
   padding: 8px 16px; background: var(--card); border-bottom: 1px solid var(--border);
+  /* スクロールしても年月とボタンが隠れないよう、画面の上に固定する(予定の一覧・詳細などはこれより手前に出る) */
+  position: sticky; top: 0; z-index: 20;
 }
 .nav { display: flex; align-items: center; gap: 4px; }
 .title { font-size: calc(20px * var(--fs)); margin: 0 4px; min-width: 7.5em; text-align: center; white-space: nowrap; }
@@ -521,3 +523,14 @@ mark.hit { background: #ffe066; color: #1a1a1a; border-radius: 2px; padding: 0 1
 .title-suggest li.active, .title-suggest li:hover { background: var(--selected); }
 .title-suggest-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .title-suggest-meta { flex: none; color: var(--muted); font-size: calc(11px * var(--fs)); align-self: center; }
+
+/* 月表示の入れ物。スマホでは横のスワイプを月の移動に使い、縦のスクロールはブラウザに任せる */
+.month-wrap { min-width: 0; }
+.month-wrap.swipe { touch-action: pan-y; }
+
+/* PC とスマホで出し分ける(スマホは上部を固定するので、行を減らす) */
+.mobile-only { display: none; }
+@media (max-width: 760px) {
+  .mobile-only { display: inline-block; }
+  .desktop-only { display: none; }
+}
