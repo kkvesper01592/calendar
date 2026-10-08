@@ -5,7 +5,7 @@ import { toDisplay, type Colors, type DisplayEvent } from './useRangeEvents'
 import { normalizeText, searchWords } from '../lib/highlight'
 import type { OfflineSnapshot } from '../offline/offlineStore'
 
-// 検索用に読み込んだ予定(メモリ上だけ)。「更新」を押すと読み直す
+// 検索用に読み込んだ予定(メモリ上だけ)。「予定を更新」を押すと読み直す
 const indexCache = new Map<string, CalendarEvent[]>()
 let cacheReloadKey = -1
 

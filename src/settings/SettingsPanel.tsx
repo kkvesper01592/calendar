@@ -196,7 +196,7 @@ export default function SettingsPanel({ prefs, onChange, templates, titleIndex, 
             </ul>
           </>
         )}
-        <p className="hint small-text">Google カレンダーで追加したカレンダーが見当たらないときは、右上の「更新」を押してください。</p>
+        <p className="hint small-text">Google カレンダーで追加したカレンダーが見当たらないときは、右上の「予定を更新」を押してください。</p>
       </section>
 
       <section className="card settings" id="offline">
@@ -212,7 +212,7 @@ export default function SettingsPanel({ prefs, onChange, templates, titleIndex, 
         {offline.enabled && (
           <p className="small-text">
             {offline.savedInfo
-              ? `保存済み: ${new Date(offline.savedInfo.savedAt).toLocaleString('ja-JP')}(予定 ${offline.savedInfo.count} 件)。ログインしたとき・「更新」を押したとき・予定を変更したあと(30分に1回まで)に保存し直します。`
+              ? `保存済み: ${new Date(offline.savedInfo.savedAt).toLocaleString('ja-JP')}(予定 ${offline.savedInfo.count} 件)。ログインしたとき・「予定を更新」を押したとき・予定を変更したあと(30分に1回まで)に保存し直します。`
               : 'まだ保存されていません。'}{' '}
             {offline.onSaveNow && (
               <button className="small ghost" onClick={offline.onSaveNow}>

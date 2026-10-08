@@ -474,7 +474,7 @@ a.button.disabled { opacity: 0.5; pointer-events: none; }
   .seg button { padding: 4px 12px; }
   .search-box { max-width: none; }
   .menu { width: 100%; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
-  .menu button { white-space: nowrap; padding: 4px 9px; }
+  .menu button { white-space: nowrap; padding: 4px 6px; font-size: 13px; } /* 上部を固定するので、ボタンは1行に収める */
   .cell { min-height: calc(76px * var(--fs)); padding: 2px; }
   .daynum { font-size: calc(12px * var(--fs)); width: 20px; height: 20px; line-height: 20px; }
   .rokuyo { font-size: calc(9px * var(--fs)); }

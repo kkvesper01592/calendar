@@ -282,7 +282,7 @@ export default function App() {
   const replaceCalendars = (items: CalendarListEntry[]) =>
     setCalendars((cur) => (JSON.stringify(cur) === JSON.stringify(items) ? cur : items))
 
-  // 「更新」: Google で追加・名前変更したカレンダーも反映するため、一覧から読み直してから予定を読み込む
+  // 「予定を更新」: Google で追加・名前変更したカレンダーも反映するため、一覧から読み直してから予定を読み込む
   async function refresh() {
     if (offlineSnap) {
       // オフライン表示中: つながっていれば最新に戻す(ログインが切れていればログインから)
@@ -938,7 +938,7 @@ export default function App() {
             }}
           />
         ) : (
-          <p className="card warn">オフライン中はバックアップできません。ネットにつながってから「更新」を押してください。</p>
+          <p className="card warn">オフライン中はバックアップできません。ネットにつながってから「予定を更新」を押してください。</p>
         )}
         <ChangeHistory onUndo={(entry, done) => editing.undo(entry, done)} />
       </main>
@@ -1087,7 +1087,7 @@ export default function App() {
             設定
           </button>
           <button className="small ghost" onClick={refresh} title={offlineSnap ? 'ネットにつながっていれば最新に戻す' : 'Google から再読み込み'}>
-            更新
+            予定を更新
           </button>
           {token ? (
             <button className="small ghost" onClick={logout}>ログアウト</button>
