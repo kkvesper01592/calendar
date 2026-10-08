@@ -78,7 +78,11 @@ export default function MonthView({ year, month0, byDay, selected, onSelect, onO
                 {evs.slice(0, MAX_CHIPS).map((item) => {
                   const allDay = isAllDay(item.ev)
                   const title = (isMemo?.(item) ? '📝 ' : '') + (item.ev.summary || '(タイトルなし)')
-                  const style = allDay ? { background: item.color, color: textOn(item.color) } : { borderLeftColor: item.color }
+                  // 終日の予定と、色を指定した予定は背景色で塗る(色を変えたら、時刻のある予定もタイトルの背景が変わる)。
+                  // 色を指定していない時刻のある予定は、左の縦棒でカレンダーの色を示す
+                  const filled = allDay || (typeof item.ev.colorId === 'string' && item.ev.colorId !== '')
+                  const style = filled ? { background: item.color, color: textOn(item.color) } : { borderLeftColor: item.color }
+                  const kind = filled ? (allDay ? 'allday' : 'timed filled') : 'timed'
                   const content = (
                     <>
                       {showTime && !allDay && <span className="t">{hhmm(eventRange(item.ev).start)}</span>}
@@ -88,7 +92,7 @@ export default function MonthView({ year, month0, byDay, selected, onSelect, onO
                   return chipsClickable ? (
                     <button
                       key={item.key}
-                      className={`chip ${allDay ? 'allday' : 'timed'}`}
+                      className={`chip ${kind}`}
                       style={style}
                       {...hover?.(item)}
                       onClick={(e) => {
@@ -99,7 +103,7 @@ export default function MonthView({ year, month0, byDay, selected, onSelect, onO
                       {content}
                     </button>
                   ) : (
-                    <div key={item.key} className={`chip ${allDay ? 'allday' : 'timed'}`} style={style}>
+                    <div key={item.key} className={`chip ${kind}`} style={style}>
                       {content}
                     </div>
                   )

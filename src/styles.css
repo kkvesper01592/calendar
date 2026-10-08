@@ -159,6 +159,9 @@ button.chip { all: unset; box-sizing: border-box; display: block; cursor: pointe
 button.chip:hover { filter: brightness(1.1); }
 button.chip:focus-visible { outline: 2px solid var(--accent); }
 .chip.timed { border-left: 3px solid; padding-left: 3px; }
+/* 色を指定した時刻のある予定: 縦棒ではなく背景色で塗る(時刻の文字も背景に合わせる) */
+.chip.timed.filled { border-left: none; padding-left: 3px; }
+.chip.filled .t { color: inherit; opacity: 0.8; }
 .chip .t { color: var(--muted); margin-right: 3px; }
 .more { font-size: calc(11px * var(--fs)); color: var(--muted); padding-left: 3px; }
 
