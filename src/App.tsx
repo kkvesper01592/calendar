@@ -88,6 +88,8 @@ export default function App() {
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(loadPref<string[]>('hiddenCalendars', [])))
   const [showRokuyo, setShowRokuyo] = useState(() => loadPref('showRokuyo', true))
   const [showTime, setShowTime] = useState(() => loadPref('showTime', true))
+  // 「カレンダーと表示設定」の欄を開いているか(前回の状態を覚える。初めては広い画面なら開く)
+  const [sideOpen, setSideOpen] = useState<boolean | null>(() => loadPref<boolean | null>('sideOpen', null))
   const [view, setView] = useState<ViewKind>(() => loadPref<ViewKind>('view', 'month'))
   const [cursor, setCursor] = useState(() => new Date())
   const [selected, setSelected] = useState(() => new Date())
@@ -731,7 +733,7 @@ export default function App() {
     },
   })
   // 設定を変えたら、数秒後に保存先フォルダの設定の控えも書き直す(PC。許可があるときだけ)
-  const localSettingsKey = JSON.stringify([prefs, editing.templates, [...hidden], showTime, showRokuyo, view])
+  const localSettingsKey = JSON.stringify([prefs, editing.templates, [...hidden], showTime, showRokuyo, view, sideOpen])
   useEffect(() => {
     if (!canPickFolder()) return
     const timer = window.setTimeout(async () => {
@@ -826,7 +828,15 @@ export default function App() {
 
   const settings = (
     <aside className="side">
-      <details open={wide}>
+      <details
+        open={sideOpen ?? wide}
+        onToggle={(e) => {
+          const open = (e.currentTarget as HTMLDetailsElement).open
+          if (open === (sideOpen ?? wide)) return // 表示の作り直しによるもの(状態は変わっていない)
+          setSideOpen(open)
+          savePref('sideOpen', open)
+        }}
+      >
         <summary>カレンダーと表示設定</summary>
         <ul className="cal-list">
           {calendars.map((c) => (
