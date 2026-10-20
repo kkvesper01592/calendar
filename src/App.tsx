@@ -152,13 +152,16 @@ export default function App() {
   const tokenValid = () => !!tokenRef.current && tokenRef.current.expiresAt - 60_000 > Date.now()
 
   /** 通信できなくなったとき: 保存した予定があればオフライン表示に切り替える */
-  const goOffline = useCallback(async () => {
+  const goOffline = useCallback(async (opts: { snap?: OfflineSnapshot; unlessLoggedIn?: boolean } = {}) => {
     if (offlineRef.current) return
-    const snap = prefsRef.current.offlineCache ? await loadSnapshot() : undefined
+    const snap = opts.snap ?? (prefsRef.current.offlineCache ? await loadSnapshot() : undefined)
+    // 起動時: 読み込んでいる間にログインが済んでいたら、保存した予定には切り替えない(Google の最新を表示したままにする)
+    if (opts.unlessLoggedIn && tokenRef.current) return
     if (!snap) {
       setError('ネットにつながっていません。つながらないときにも予定を見られるようにするには、「設定」→「オフライン表示」をオンにしてください')
       return
     }
+    offlineRef.current = snap // 直後にログインが済んだときも、保存した表示から最新に切り替えられるように(画面の更新を待たない)
     setOfflineSnap(snap)
     setCalendars((cur) => (cur.length ? cur : snap.calendars))
     setColors((cur) => cur ?? snap.colors)
@@ -177,13 +180,14 @@ export default function App() {
     setError(e instanceof Error ? e.message : String(e))
   }, [goOffline])
 
-  async function login() {
+  /** auto: 起動時の自動ログイン(専用アプリ)。保存した合鍵だけでつなぎ、ブラウザの確認画面は開かない */
+  async function login(_e?: unknown, opts: { auto?: boolean } = {}) {
     setError('')
     // 一度許可した端末では、2回目から確認画面を出さない(写真日記と同じ。小さな画面が一瞬開いて自動で閉じる)
     let silent = false
     try {
       // 専用アプリでは、保存した合鍵があればそれでつなぎ、無いときだけ確認画面(普段のブラウザ)を開く
-      silent = !inDesktopApp && localStorage.getItem(LOGGED_IN) === '1'
+      silent = opts.auto || (!inDesktopApp && localStorage.getItem(LOGGED_IN) === '1')
     } catch {
       /* 保存できない環境では毎回確認画面 */
     }
@@ -231,9 +235,15 @@ export default function App() {
   useEffect(() => {
     if (expired && inDesktopApp && desktopHasLogin()) ensureToken(Number.MAX_SAFE_INTEGER).catch(() => {})
   }, [expired]) // eslint-disable-line react-hooks/exhaustive-deps
-  // 専用アプリ: ログインの合鍵が保存されていれば、起動したらすぐ自動でつなぐ(ボタン操作は要らない)
+  // 専用アプリ: ログインの合鍵が保存されていれば、起動したらすぐ自動でつなぐ(ボタン操作は要らない)。
+  // つなぎ終わるまでは保存した予定を表示し、「保存した予定を表示しています」のお知らせは、つなげなかったときだけ出す
+  const [autoLoginPending, setAutoLoginPending] = useState(() => desktopHasLogin())
   useEffect(() => {
-    if (desktopHasLogin()) void login().finally(() => setBooting(false))
+    if (desktopHasLogin())
+      void login(undefined, { auto: true }).finally(() => {
+        setBooting(false)
+        setAutoLoginPending(false)
+      })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
@@ -460,7 +470,7 @@ export default function App() {
         return
       }
       setSavedInfo({ savedAt: snap.savedAt, count: snapshotCount(snap) })
-      if (!tokenRef.current) await goOffline()
+      if (!tokenRef.current) await goOffline({ snap, unlessLoggedIn: true })
       setBooting(false)
     })
   }, [prefs.offlineCache]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1148,7 +1158,7 @@ export default function App() {
           予定をこの端末に保存しています…{offlineSync.replace(/^オフライン用に保存中…\s*/, '')}。保存が終わるまでアプリを閉じないでください。
         </div>
       )}
-      {offlineSnap && (
+      {offlineSnap && !autoLoginPending && (
         <div className={`banner ${online ? '' : 'warn-banner'}`}>
           {new Date(offlineSnap.savedAt).toLocaleString('ja-JP')} に保存した予定を表示しています(閲覧と検索のみ。追加・変更はログインしてから)。
           {online ? (
