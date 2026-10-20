@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SCOPE_APP_CREATED, SCOPE_CALENDAR_READONLY, SCOPE_EVENTS } from './config'
 import { requestAccessToken, revokeToken, type AccessToken } from './google/auth'
+import { desktopHasLogin, inDesktopApp } from './desktop/host'
 import { AuthExpiredError, getColors, listCalendars, type CalendarListEntry } from './google/calendarReadApi'
 import { useRangeEvents, type Colors, type DisplayEvent } from './calendar/useRangeEvents'
 import MonthView from './calendar/MonthView'
@@ -181,7 +182,8 @@ export default function App() {
     // 一度許可した端末では、2回目から確認画面を出さない(写真日記と同じ。小さな画面が一瞬開いて自動で閉じる)
     let silent = false
     try {
-      silent = localStorage.getItem(LOGGED_IN) === '1'
+      // 専用アプリでは、保存した合鍵があればそれでつなぎ、無いときだけ確認画面(普段のブラウザ)を開く
+      silent = !inDesktopApp && localStorage.getItem(LOGGED_IN) === '1'
     } catch {
       /* 保存できない環境では毎回確認画面 */
     }
@@ -222,6 +224,17 @@ export default function App() {
     }
   }
   const loginFresh = useRef(false)
+
+  // 専用アプリ: 起動したら、保存した予定を読み終えるまで(予定が無ければログインし終えるまで)は「読み込み中」だけ出す
+  const [booting, setBooting] = useState(inDesktopApp)
+  // 専用アプリ: ログインの有効期限(1時間)が切れたら、保存した合鍵で自動でつなぎ直す(「再ログイン」を押さなくてよい)
+  useEffect(() => {
+    if (expired && inDesktopApp && desktopHasLogin()) ensureToken(Number.MAX_SAFE_INTEGER).catch(() => {})
+  }, [expired]) // eslint-disable-line react-hooks/exhaustive-deps
+  // 専用アプリ: ログインの合鍵が保存されていれば、起動したらすぐ自動でつなぐ(ボタン操作は要らない)
+  useEffect(() => {
+    if (desktopHasLogin()) void login().finally(() => setBooting(false))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * ボタン操作の中から呼ぶ: ログインの残り時間が minMs 未満なら、確認画面なしでログインし直して新しいトークンを返す
@@ -419,7 +432,10 @@ export default function App() {
   // 保存済みの内容を読む。ログインする前は、前回保存した予定をすぐ表示する(写真日記と同じ。ネットが無くても見られる)
   // ブラウザの予定が消えていても、保存先フォルダの許可が残っていれば、フォルダの控えから自動で戻す
   useEffect(() => {
-    if (!prefs.offlineCache) return setSavedInfo(null)
+    if (!prefs.offlineCache) {
+      if (!desktopHasLogin()) setBooting(false)
+      return setSavedInfo(null)
+    }
     loadSnapshot().then(async (snap) => {
       if ((!snap || settingsWereMissing) && canPickFolder()) {
         try {
@@ -439,9 +455,13 @@ export default function App() {
           /* 戻せなければ、ログイン画面の「バックアップから予定を戻す」で */
         }
       }
-      if (!snap) return
+      if (!snap) {
+        if (!desktopHasLogin()) setBooting(false)
+        return
+      }
       setSavedInfo({ savedAt: snap.savedAt, count: snapshotCount(snap) })
-      if (!tokenRef.current) void goOffline()
+      if (!tokenRef.current) await goOffline()
+      setBooting(false)
     })
   }, [prefs.offlineCache]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -796,6 +816,14 @@ export default function App() {
     setSearchQuery('')
   }
 
+  if (booting && !token && !offlineSnap) {
+    return (
+      <main className="login-screen">
+        <p className="muted">読み込み中…</p>
+      </main>
+    )
+  }
+
   if (!token && !offlineSnap) {
     const needsFolder = !savedInfo && prefs.offlineCache && canPickFolder()
     return (
@@ -807,7 +835,9 @@ export default function App() {
             {/* 写真日記と同じく、保存先フォルダを選ぶだけで予定を表示する(ブラウザの決まりで、フォルダの読み取りにはボタン操作が必要) */}
             <button onClick={() => void restoreFromFolder()}>バックアップの予定を表示する</button>
             <p className="muted small-text">
-              この端末に保存した予定が見つかりません(ブラウザのデータが消えた可能性があります)。
+              {inDesktopApp
+                ? 'このアプリにはまだ予定が保存されていません。'
+                : 'この端末に保存した予定が見つかりません(ブラウザのデータが消えた可能性があります)。'}
               バックアップの保存先フォルダ(「最新」フォルダがある場所)を選ぶと、ログインしなくても予定と設定を戻して表示します。
             </p>
             <button className="ghost" onClick={login}>

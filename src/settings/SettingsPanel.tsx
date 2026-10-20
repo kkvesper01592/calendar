@@ -7,6 +7,7 @@ import type { CalendarListEntry } from '../google/calendarReadApi'
 import type { Colors } from '../calendar/useRangeEvents'
 import { isAppCalendar, isEditableRole, isMemoCalendar } from '../google/calendarWriteApi'
 import { buildInfo, versionDetail } from '../lib/version'
+import { desktopVersion } from '../desktop/host'
 
 const WD = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -55,6 +56,7 @@ export default function SettingsPanel({ prefs, onChange, templates, titleIndex, 
         <h2>このアプリについて</h2>
         <p>
           <strong>{versionDetail}</strong>
+          {desktopVersion() && <span className="muted small-text">(専用アプリ ver {desktopVersion()})</span>}
         </p>
         <p className="hint small-text">
           PC とスマホでこの表示(特に「ビルド {buildInfo.commit}」)が同じなら、同じプログラムを使っています。違うときは再読み込みしてください(スマホのアプリは閉じて開き直す)。新しい版が公開されると、画面上部にお知らせが出ます。
