@@ -797,21 +797,25 @@ export default function App() {
   }
 
   if (!token && !offlineSnap) {
+    const needsFolder = !savedInfo && prefs.offlineCache && canPickFolder()
     return (
       <main className="login-screen">
         <h1>WebCalendar</h1>
         <p className="muted">Google カレンダーの予定を表示・編集します</p>
-        <button onClick={login}>Google にログイン</button>
-        {!savedInfo && prefs.offlineCache && canPickFolder() && (
+        {needsFolder ? (
           <>
-            <button className="ghost" onClick={() => void restoreFromFolder()}>
-              バックアップから予定と設定を戻す
-            </button>
+            {/* 写真日記と同じく、保存先フォルダを選ぶだけで予定を表示する(ブラウザの決まりで、フォルダの読み取りにはボタン操作が必要) */}
+            <button onClick={() => void restoreFromFolder()}>バックアップの予定を表示する</button>
             <p className="muted small-text">
-              この端末に保存した予定が見つかりません(アプリの入れ直しなどで消えた可能性があります)。
-              バックアップの保存先フォルダに控えがあれば、ログインしなくても予定と設定を戻せます。
+              この端末に保存した予定が見つかりません(ブラウザのデータが消えた可能性があります)。
+              バックアップの保存先フォルダ(「最新」フォルダがある場所)を選ぶと、ログインしなくても予定と設定を戻して表示します。
             </p>
+            <button className="ghost" onClick={login}>
+              Google にログイン
+            </button>
           </>
+        ) : (
+          <button onClick={login}>Google にログイン</button>
         )}
         {savedInfo && (
           <>
