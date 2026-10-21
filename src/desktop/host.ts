@@ -1,4 +1,4 @@
-// 専用アプリ(Windows の WebCalendar.exe = WebCalendarDesktop)の中で動いているときの、アプリ本体とのやり取り。
+// 専用アプリ(Windows の WebCalendar.exe・PhotoDiary.exe・Kakeibo.exe = WebCalendarDesktop)の中で動いているときの、アプリ本体とのやり取り。
 // ブラウザで開いたときは何もしない(inDesktopApp が false)。
 // アプリの中では、ブラウザの保存場所(localStorage・IndexedDB)の代わりに、アプリ本体が
 // %LOCALAPPDATA%\WebCalendarApp に DPAPI で暗号化して保存する(Chrome の「閉じたら削除」などの影響を受けない)。
@@ -183,19 +183,19 @@ export class HostFileHandle {
   async createWritable(opts: { keepExistingData?: boolean } = {}) {
     const path = this.path
     let start: number | null = null // seek した位置(keepExistingData のとき)
-    const chunks: string[] = []
+    const parts: BlobPart[] = [] // 文字・写真などのバイナリをそのまま集める
     return {
       async seek(pos: number) {
         start = pos
       },
-      async write(data: string | { type: 'write'; data: string }) {
-        chunks.push(typeof data === 'string' ? data : String(data.data))
+      async write(data: BlobPart | { type: 'write'; data: BlobPart }) {
+        parts.push(data && typeof data === 'object' && 'type' in data && (data as { type: string }).type === 'write' ? (data as { data: BlobPart }).data : (data as BlobPart))
       },
       async close() {
-        await hostCall('fs.write', { path, text: chunks.join(''), keep: !!opts.keepExistingData, start })
+        await hostCall('fs.write', { path, base64: await toBase64(new Blob(parts)), keep: !!opts.keepExistingData, start })
       },
       async abort() {
-        chunks.length = 0
+        parts.length = 0
       },
     }
   }
@@ -205,6 +205,16 @@ export class HostFileHandle {
   async requestPermission() {
     return 'granted' as const
   }
+}
+
+/** Blob を base64 にする(アプリ本体へ渡すため。文字は UTF-8 になる) */
+function toBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''))
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(blob)
+  })
 }
 
 /** kv に保存した値を戻すとき、フォルダは HostDirHandle に戻す */
