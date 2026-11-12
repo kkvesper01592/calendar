@@ -92,6 +92,17 @@ export default function App() {
   // 「カレンダーと表示設定」の欄を開いているか(前回の状態を覚える。初めては広い画面なら開く)
   const [sideOpen, setSideOpen] = useState<boolean | null>(() => loadPref<boolean | null>('sideOpen', null))
   const swipeStart = useRef<{ x: number; y: number; at: number } | null>(null) // スマホの月表示のスワイプ
+  // 上部バーの高さを CSS 変数 --topbar-h に入れる(固定表示する検索の右側の内容が、上部バーの裏に隠れないように)
+  const topbarObserver = useRef<ResizeObserver | null>(null)
+  const topbarRef = useCallback((el: HTMLElement | null) => {
+    topbarObserver.current?.disconnect()
+    topbarObserver.current = null
+    if (!el) return
+    const apply = () => document.documentElement.style.setProperty('--topbar-h', `${el.offsetHeight}px`)
+    apply()
+    topbarObserver.current = new ResizeObserver(apply)
+    topbarObserver.current.observe(el)
+  }, [])
   const [view, setView] = useState<ViewKind>(() => loadPref<ViewKind>('view', 'month'))
   const [cursor, setCursor] = useState(() => new Date())
   const [selected, setSelected] = useState(() => new Date())
@@ -1086,7 +1097,7 @@ export default function App() {
   return (
     <PrefsContext.Provider value={prefs}>
     <div className="app">
-      <header className="topbar">
+      <header className="topbar" ref={topbarRef}>
         <div className="nav">
           <button className="icon" onClick={() => setCursor(shiftCursor(view, cursor, -1, weekOpts))} aria-label="前へ">‹</button>
           <h1 className="title">{viewTitle(view, cursor, weekOpts)}</h1>

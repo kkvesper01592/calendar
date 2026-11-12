@@ -398,7 +398,9 @@ a.button.disabled { opacity: 0.5; pointer-events: none; }
 .search-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
 .search-split .card { margin-bottom: 0; }
 .search-preview {
-  position: sticky; top: 12px; overflow: auto; max-height: calc(100vh - 110px);
+  /* 上部バー(画面の上に固定)の下で止める。止める位置が上部バーより上だと、表題と日時がバーの裏に隠れる */
+  position: sticky; top: calc(var(--topbar-h, 56px) + 12px); overflow: auto;
+  max-height: calc(100vh - var(--topbar-h, 56px) - 24px);
   padding-top: 18px;
 }
 .search-preview .modal-bar { border-radius: 8px 8px 0 0; }
