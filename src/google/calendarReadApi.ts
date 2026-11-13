@@ -129,6 +129,20 @@ export async function listAllExpanded(token: AccessToken, calendarId: string) {
   return items
 }
 
+/** since 以降に追加・変更・削除された予定だけを読む(端末に保存した予定との差分。削除は status=cancelled で返る) */
+export async function listChangedSince(token: AccessToken, calendarId: string, since: Date) {
+  const timeMax = new Date()
+  timeMax.setFullYear(timeMax.getFullYear() + 2)
+  const { items } = await getAllPages<CalendarEvent>(token, `/calendars/${encodeURIComponent(calendarId)}/events`, {
+    singleEvents: 'true',
+    showDeleted: 'true',
+    updatedMin: since.toISOString(),
+    timeMax: timeMax.toISOString(),
+    maxResults: '2500',
+  })
+  return items
+}
+
 export function getEvent(token: AccessToken, calendarId: string, eventId: string) {
   return apiGet<CalendarEvent>(token, `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`)
 }

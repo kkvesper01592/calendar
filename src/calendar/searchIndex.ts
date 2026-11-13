@@ -1,5 +1,5 @@
 import type { AccessToken } from '../google/auth'
-import { listAllExpanded, type CalendarEvent, type CalendarListEntry } from '../google/calendarReadApi'
+import { AuthExpiredError, listAllExpanded, listChangedSince, type CalendarEvent, type CalendarListEntry } from '../google/calendarReadApi'
 import { eventRange } from '../lib/dates'
 import { toDisplay, type Colors, type DisplayEvent } from './useRangeEvents'
 import { normalizeText, searchWords } from '../lib/highlight'
@@ -18,6 +18,29 @@ function matches(ev: CalendarEvent, words: string[]): boolean {
 }
 
 /**
+ * 端末に保存した予定に、保存した後で Google 側で追加・変更・削除された分を重ねる。
+ * 差分が読めなかった(通信できない等)ときは保存した予定のまま探す
+ */
+async function withChanges(token: AccessToken, calendarId: string, base: CalendarEvent[], savedAt: string): Promise<CalendarEvent[]> {
+  // 保存の途中で変わった予定を取りこぼさないよう、保存した時刻より少し前からの変更を読む
+  const since = new Date(new Date(savedAt).getTime() - 10 * 60_000)
+  let changes: CalendarEvent[]
+  try {
+    changes = await listChangedSince(token, calendarId, since)
+  } catch (e) {
+    if (e instanceof AuthExpiredError) throw e
+    return base
+  }
+  if (!changes.length) return base
+  const byId = new Map(base.map((ev) => [ev.id, ev]))
+  for (const ev of changes) {
+    if (ev.status === 'cancelled' || !ev.start) byId.delete(ev.id)
+    else byId.set(ev.id, ev)
+  }
+  return [...byId.values()]
+}
+
+/**
  * タイトル・メモ・場所から、文字の一部一致で予定を探す(Google の検索は日本語の文中の数字などに一致しないため)。
  * スペース区切りは「すべて含む」。結果は開始日時の古い順
  */
@@ -29,6 +52,7 @@ export async function searchEvents(
   reloadKey: number,
   onProgress?: (msg: string) => void,
   offline?: OfflineSnapshot | null, // オフライン中は、この端末に保存した予定から探す
+  saved?: OfflineSnapshot | null, // オンラインでも、この端末に保存した予定があれば、それ+保存後に変わった分だけを読んで探す(全部読み直すと遅い)
 ): Promise<DisplayEvent[]> {
   if (cacheReloadKey !== reloadKey) {
     indexCache.clear()
@@ -40,8 +64,14 @@ export async function searchEvents(
     let items = offline ? (offline.events[cal.id] ?? []) : indexCache.get(cal.id)
     if (!items) {
       if (!token) break
-      onProgress?.(`予定を読み込み中… (${i + 1}/${calendars.length})`)
-      items = await listAllExpanded(token, cal.id)
+      const base = saved?.events[cal.id]
+      if (base) {
+        onProgress?.(`最新の変更を確認中… (${i + 1}/${calendars.length})`)
+        items = await withChanges(token, cal.id, base, saved!.savedAt)
+      } else {
+        onProgress?.(`予定を読み込み中… (${i + 1}/${calendars.length})`)
+        items = await listAllExpanded(token, cal.id)
+      }
       indexCache.set(cal.id, items)
     }
     for (const ev of items) if (ev.status !== 'cancelled' && ev.start && matches(ev, words)) found.push(toDisplay(ev, cal, colors))

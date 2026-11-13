@@ -764,7 +764,7 @@ export default function App() {
     onOpenEditSettings: openEditSettings,
     ensureToken,
     // 追加画面の「予定の検索」: 表示中のカレンダー(日付メモを除く)から探す
-    searchPast: liveToken ? (q) => searchEvents(liveToken, visibleCalendars.filter((c) => !isMemoCalendar(c)), colors, q, reloadKey) : undefined,
+    searchPast: liveToken ? (q) => searchEvents(liveToken, visibleCalendars.filter((c) => !isMemoCalendar(c)), colors, q, reloadKey, undefined, null, titleSnap) : undefined,
     suggestStart: (date) => {
       // その日に終わる時間指定の予定のうち、一番遅い終了時刻(終日・日付メモ・翌日にまたがる予定は除く)
       const ends = (byDay.get(ymd(date)) ?? [])
@@ -1004,6 +1004,7 @@ export default function App() {
         <SearchView
           token={liveToken}
           offline={offlineSnap}
+          saved={titleSnap}
           calendars={visibleCalendars}
           colors={colors}
           query={searchQuery}

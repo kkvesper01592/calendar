@@ -1,0 +1,13 @@
+<resources>
+    <!-- 最初からダーク(白い画面が一瞬出ないように、背景も暗くする) -->
+    <style name="Theme.WebCalendar" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="colorPrimary">#2f6fdb</item>
+        <item name="colorAccent">#2f6fdb</item>
+    </style>
+    <color name="bg">#15171b</color>
+</resources>

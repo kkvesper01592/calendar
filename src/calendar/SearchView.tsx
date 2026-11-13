@@ -25,6 +25,7 @@ function hitLines(ev: CalendarEvent, words: string[]): { label?: string; text: s
 interface Props {
   token: AccessToken | null
   offline: OfflineSnapshot | null // オフライン中は保存した予定から探す
+  saved: OfflineSnapshot | null // オンラインでも、この端末に保存した予定があれば使う(変更分だけ Google から読む)
   calendars: CalendarListEntry[]
   colors: Colors | null
   query: string
@@ -35,7 +36,7 @@ interface Props {
 }
 
 /** 検索結果: 今日以降の予定と過去の予定(新しい順)に分けて表示。スペース区切りは「すべて含む」 */
-export default function SearchView({ token, offline, calendars, colors, query, reloadKey, onOpen, onClose, onError }: Props) {
+export default function SearchView({ token, offline, saved, calendars, colors, query, reloadKey, onOpen, onClose, onError }: Props) {
   const [results, setResults] = useState<DisplayEvent[] | null>(null)
   const [progress, setProgress] = useState('')
   const [preview, setPreview] = useState<DisplayEvent | null>(null)
@@ -46,13 +47,13 @@ export default function SearchView({ token, offline, calendars, colors, query, r
     let cancelled = false
     setResults(null)
     setPreview(null)
-    searchEvents(token, calendars, colors, query, reloadKey, setProgress, offline)
+    searchEvents(token, calendars, colors, query, reloadKey, setProgress, offline, saved)
       .then((found) => !cancelled && setResults(found))
       .catch((e) => !cancelled && onError(e))
     return () => {
       cancelled = true
     }
-  }, [token, offline, calendars, colors, query, reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token, offline, saved, calendars, colors, query, reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const words = searchWords(query)
   const now = Date.now()

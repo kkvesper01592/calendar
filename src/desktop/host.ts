@@ -15,7 +15,27 @@ interface DesktopSync {
   Version(): string
 }
 
-const webview = (window as unknown as { chrome?: { webview?: WebViewBridge } }).chrome?.webview
+/** Android 版(WebCalendar\android)の窓口。名前と約束は Windows 版と同じにしてある */
+interface AndroidBridge extends DesktopSync {
+  postMessage(json: string): void
+}
+const android = (window as unknown as { WebCalendarAndroid?: AndroidBridge }).WebCalendarAndroid
+
+/** Android 版: Windows 版(WebView2)と同じ形の窓口にそろえる。返事はアプリ本体が __webCalendarReply で渡す */
+function androidWebview(a: AndroidBridge): WebViewBridge {
+  const listeners: ((e: { data: unknown }) => void)[] = []
+  ;(window as unknown as { __webCalendarReply: (json: string) => void }).__webCalendarReply = (json) => {
+    const data = JSON.parse(json)
+    for (const l of listeners) l({ data })
+  }
+  return {
+    postMessage: (m) => a.postMessage(JSON.stringify(m)),
+    addEventListener: (_type, l) => void listeners.push(l),
+    hostObjects: { sync: { desktop: { GetLocalStorage: () => a.GetLocalStorage(), HasLogin: () => a.HasLogin(), Version: () => a.Version() } } },
+  }
+}
+
+const webview = android ? androidWebview(android) : (window as unknown as { chrome?: { webview?: WebViewBridge } }).chrome?.webview
 const desktopSync = (() => {
   try {
     return webview?.hostObjects?.sync?.desktop
@@ -24,8 +44,11 @@ const desktopSync = (() => {
   }
 })()
 
-/** 専用アプリの中で動いているか */
+/** 専用アプリ(Windows 版・Android 版)の中で動いているか */
 export const inDesktopApp = !!webview && !!desktopSync
+
+/** Android 版の中で動いているか(フォルダの読み書きは無い。スマホ向けの画面になる) */
+export const inAndroidApp = inDesktopApp && !!android
 
 /** 専用アプリにログインの合鍵(リフレッシュトークン)が保存されているか */
 export const desktopHasLogin = (): boolean => {
@@ -232,6 +255,14 @@ export function installDesktopHost() {
   }
   const storage = new HostStorage(initial)
   Object.defineProperty(window, 'localStorage', { configurable: true, value: storage })
+  if (inAndroidApp) {
+    // Android 版はフォルダの読み書きをしない(スマホ向けの画面になる)。
+    // 新しい WebView はフォルダ選択を持っていることがあるので、明示的に消す
+    Object.defineProperty(window, 'showDirectoryPicker', { configurable: true, value: undefined })
+    document.documentElement.dataset.desktop = '1'
+    document.documentElement.dataset.android = '1'
+    return
+  }
   const pick = async (opts?: { id?: string; mode?: string }) => {
     const r = await hostCall<{ path: string } | null>('fs.pick', { id: opts?.id ?? '', mode: opts?.mode ?? 'read' })
     if (!r) throw new DOMException('フォルダの選択をやめました', 'AbortError')

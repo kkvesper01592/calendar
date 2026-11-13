@@ -1,0 +1,14 @@
+# ビルドの途中ファイル
+.gradle/
+build/
+app/build/
+local.properties
+# build_apk.ps1 が Web 版のビルドをここにコピーする
+app/src/main/assets/web/
+# できあがった APK
+out/
+# 署名の鍵とパスワード(絶対に公開しない。なくすと更新できなくなるので別の場所にも控える)
+keystore/
+*.jks
+*.keystore
+keystore.properties
