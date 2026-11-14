@@ -71,11 +71,14 @@ async function getAllPages<T>(
   path: string,
   params: Record<string, string>,
   onPage?: (count: number) => void,
+  maxPages = Infinity, // これを超えて続きがあるときはエラーにする(終わらない読み込みを防ぐ)
 ): Promise<{ items: T[]; firstPage: Record<string, unknown> }> {
   const items: T[] = []
   let firstPage: Record<string, unknown> | null = null
   let pageToken: string | undefined
+  let pages = 0
   do {
+    if (++pages > maxPages) throw new Error(`読み込みが ${maxPages} ページを超えたので止めました`)
     const page = await apiGet<{ items?: T[]; nextPageToken?: string } & Record<string, unknown>>(token, path, {
       ...params,
       ...(pageToken ? { pageToken } : {}),
@@ -139,7 +142,7 @@ export async function listChangedSince(token: AccessToken, calendarId: string, s
     updatedMin: since.toISOString(),
     timeMax: timeMax.toISOString(),
     maxResults: '2500',
-  })
+  }, undefined, 20)
   return items
 }
 

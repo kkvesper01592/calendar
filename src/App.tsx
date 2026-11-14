@@ -338,9 +338,11 @@ export default function App() {
 
   // ---- オフライン表示用の保存(設定でオンにした端末だけ) ----
   const syncing = useRef(false)
+  const syncAgain = useRef(false) // 保存の最中に予定が変わったら、終わったあともう一度(変わった分だけ)保存する
   const [firstSaving, setFirstSaving] = useState(false) // この端末で初めて予定を保存している最中(終わるまで知らせ続ける)
-  async function syncOffline(force: boolean) {
+  async function syncOffline(force: boolean, full = false) {
     const t = tokenRef.current
+    if (syncing.current && force) syncAgain.current = true
     if (!t || !tokenValid() || !prefsRef.current.offlineCache || offlineRef.current || syncing.current || !navigator.onLine) return
     // 前回の保存から30分たっていなければ、押したとき(force)以外は保存しない
     if (!force && savedInfo && Date.now() - new Date(savedInfo.savedAt).getTime() < 30 * 60_000) return
@@ -348,7 +350,9 @@ export default function App() {
     const first = !savedInfo // この端末で初めての保存(入れ直した直後など)
     if (first) setFirstSaving(true)
     try {
-      const snap = await saveSnapshot(t, setOfflineSync)
+      // 前回の保存があれば、変わった分だけ読む(通信量を抑える)
+      const prev = full ? undefined : await loadSnapshot().catch(() => undefined)
+      const snap = await saveSnapshot(t, setOfflineSync, prev, full)
       const count = snapshotCount(snap)
       setSavedInfo({ savedAt: snap.savedAt, count })
       void copyToFolder(snap)
@@ -365,6 +369,10 @@ export default function App() {
       setFirstSaving(false)
     }
     setOfflineSync('')
+    if (syncAgain.current) {
+      syncAgain.current = false
+      void syncOffline(true)
+    }
   }
 
   // ---- 2つ目の保存場所: PC の保存先フォルダの「最新\表示用の予定.json」 ----
@@ -486,11 +494,14 @@ export default function App() {
     })
   }, [prefs.offlineCache]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ログインしたとき・予定を変更したあとに保存(ログイン直後は必ず、それ以外は30分に1回まで)
+  // ログインしたとき・予定を変更したあとに保存(ログイン直後と予定の変更・更新のあとは必ず、それ以外は30分に1回まで)。
+  // 変わった分だけ読むので通信は少ない。検索はこの保存した予定から行うので、変更のあとすぐ新しくしておく
+  const syncedReloadKey = useRef(reloadKey)
   useEffect(() => {
     if (!token || !calendars.length) return
-    const force = loginFresh.current
+    const force = loginFresh.current || syncedReloadKey.current !== reloadKey
     loginFresh.current = false
+    syncedReloadKey.current = reloadKey
     void syncOffline(force)
   }, [token, calendars.length, reloadKey, prefs.offlineCache]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -971,7 +982,7 @@ export default function App() {
             onToggle: setOfflineCache,
             savedInfo,
             status: [offlineSync, folderCopy].filter(Boolean).join(' / '),
-            onSaveNow: liveToken ? () => void syncOffline(true) : undefined,
+            onSaveNow: liveToken ? () => void syncOffline(true, true) : undefined, // 「今すぐ保存」は全部を読み直す
           }}
         />
       </main>

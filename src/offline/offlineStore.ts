@@ -2,7 +2,7 @@
 // 設定の「この端末に予定を保存する」(最初からオン)でオフにした端末では何も保存しない。
 // 保存するのは閲覧・検索に必要な分(全カレンダーの予定を、繰り返しを展開して2年先まで)。
 import type { AccessToken } from '../google/auth'
-import { getColors, listAllExpanded, listCalendars, type CalendarEvent, type CalendarListEntry } from '../google/calendarReadApi'
+import { AuthExpiredError, getColors, listAllExpanded, listCalendars, listChangedSince, type CalendarEvent, type CalendarListEntry } from '../google/calendarReadApi'
 import { idbDelete, idbGet, idbSet } from '../lib/idb'
 import type { Colors } from '../calendar/useRangeEvents'
 
@@ -10,6 +10,8 @@ const KEY = 'offlineSnapshot'
 
 export interface OfflineSnapshot {
   savedAt: string // 保存した日時(ISO)
+  startedAt?: string // その保存で読み始めた日時(次回は、これより後に変わった分だけ読む)
+  fullAt?: string // 最後に全部を読み直した日時
   calendars: CalendarListEntry[]
   colors: Colors | null
   events: Record<string, CalendarEvent[]> // カレンダー ID → 予定
@@ -20,15 +22,63 @@ export const clearSnapshot = () => idbDelete(KEY)
 
 export const snapshotCount = (s: OfflineSnapshot) => Object.values(s.events).reduce((n, arr) => n + arr.length, 0)
 
-/** Google から全カレンダーの予定を読み、この端末に保存する(削除済みは除く) */
-export async function saveSnapshot(token: AccessToken, onProgress?: (msg: string) => void): Promise<OfflineSnapshot> {
+const FULL_EVERY = 7 * 24 * 60 * 60_000 // 全部を読み直す間隔(それ以外は変わった分だけ読む)
+
+/** 保存した予定に、since 以降に Google 側で追加・変更・削除された分を重ねる */
+async function mergeChanges(token: AccessToken, calendarId: string, base: CalendarEvent[], since: Date): Promise<CalendarEvent[]> {
+  const changes = await listChangedSince(token, calendarId, since)
+  if (!changes.length) return base
+  const byId = new Map(base.map((ev) => [ev.id, ev]))
+  for (const ev of changes) {
+    if (ev.status === 'cancelled' || !ev.start) byId.delete(ev.id)
+    else byId.set(ev.id, ev)
+  }
+  return [...byId.values()]
+}
+
+/**
+ * Google の予定をこの端末に保存する(削除済みは除く)。通信量を抑えるため、前回の保存(prev)があれば
+ * 変わった分だけを読んで重ねる。全部を読み直すのは、初めて・7日ごと・full 指定・変わった分が読めなかったカレンダーだけ
+ * (繰り返し予定の「2年先まで」の範囲が日々先へ進む分も、7日ごとの読み直しで補う)
+ */
+export async function saveSnapshot(
+  token: AccessToken,
+  onProgress?: (msg: string) => void,
+  prev?: OfflineSnapshot | null,
+  full = false,
+): Promise<OfflineSnapshot> {
+  const startedAt = new Date()
   const [{ items: calendars }, colors] = await Promise.all([listCalendars(token), getColors(token)])
+  const fullAt = prev?.fullAt ?? prev?.savedAt
+  const incremental = !full && !!prev && !!fullAt && Date.now() - new Date(fullAt).getTime() < FULL_EVERY
+  // 保存の途中で変わった予定を取りこぼさないよう、前回の保存を始めた時刻より少し前からの変更を読む
+  const since = prev ? new Date(new Date(prev.startedAt ?? prev.savedAt).getTime() - 10 * 60_000) : null
   const events: Record<string, CalendarEvent[]> = {}
+  let allFull = true
   for (const [i, cal] of calendars.entries()) {
+    const base = incremental ? prev!.events[cal.id] : undefined
+    if (base && since) {
+      onProgress?.(`変わった予定を確認中… (${i + 1}/${calendars.length})`)
+      try {
+        events[cal.id] = await mergeChanges(token, cal.id, base, since)
+        allFull = false
+        continue
+      } catch (e) {
+        if (e instanceof AuthExpiredError || isNetworkError(e)) throw e
+        // 変わった分が読めない(古すぎる等)ときは、このカレンダーだけ全部読み直す
+      }
+    }
     onProgress?.(`オフライン用に保存中… (${i + 1}/${calendars.length})`)
     events[cal.id] = (await listAllExpanded(token, cal.id)).filter((e) => e.status !== 'cancelled' && e.start)
   }
-  const snap: OfflineSnapshot = { savedAt: new Date().toISOString(), calendars, colors: colors as Colors, events }
+  const snap: OfflineSnapshot = {
+    savedAt: new Date().toISOString(),
+    startedAt: startedAt.toISOString(),
+    fullAt: allFull ? startedAt.toISOString() : fullAt,
+    calendars,
+    colors: colors as Colors,
+    events,
+  }
   await idbSet(KEY, snap)
   return snap
 }

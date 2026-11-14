@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AccessToken } from '../google/auth'
 import { canPickFolder, pickFolder } from './saveToFolder'
+import { inAndroidApp } from '../desktop/host'
 import { getRememberedFolder } from '../settings/cloudSettings'
 import { getAutoDir, lastAutoBackup, LATEST_FOLDER, permission, requestPermission, runBackupTo, setAutoDir, type LatestBackup } from './autoBackup'
 
@@ -65,7 +66,14 @@ export default function BackupPanel({ token, onError, onDone, periodic }: Props)
     return (
       <section className="card">
         <h2>バックアップ</h2>
-        <p className="warn">このブラウザはフォルダへの保存に対応していません。PC の Edge か Chrome で開いてください。</p>
+        {inAndroidApp ? (
+          <p className="muted">
+            ファイルへのバックアップは PC(Windows 専用アプリ、または PC の Edge・Chrome)で行います。スマホのアプリではフォルダへの保存はしません。
+            予定は Google カレンダーにあり、閲覧・検索用の控えはこの端末の中に保存しています(「設定」の「オフライン表示」)。
+          </p>
+        ) : (
+          <p className="warn">このブラウザはフォルダへの保存に対応していません。PC の Edge か Chrome で開いてください。</p>
+        )}
       </section>
     )
   }
